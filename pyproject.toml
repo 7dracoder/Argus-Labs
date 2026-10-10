@@ -12,6 +12,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["httpx==0.28.1"]
+integrations = ["psycopg[binary]>=3.2,<4"]
 
 [build-system]
 requires = ["setuptools>=68"]

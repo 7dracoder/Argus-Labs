@@ -46,3 +46,51 @@ curl -X POST localhost:8000/projects/<id>/finance/tco \
 Notes: catalog prices are placeholders, not quotes. Optimizer output is marked
 `verification: pending` because agents propose and independent checks verify.
 The API has no authentication yet; don't expose it publicly.
+
+## Hack Knight integrations
+
+Snowflake is intentionally not included yet. The other sponsor integrations are
+ready to configure without putting a secret in source control.
+
+### ElevenLabs: Architect replies as speech
+
+Set these variables on the **backend only** (never in browser code):
+
+```bash
+export ELEVENLABS_API_KEY=...
+export ELEVENLABS_VOICE_ID=...
+# optional; defaults to eleven_multilingual_v2
+export ELEVENLABS_MODEL_ID=...
+```
+
+Send a transcript to `POST /projects/{id}/voice/architect`; its `speech.text`
+can then be sent to `POST /voice/synthesize`, which returns `audio/mpeg`.
+
+### Tiger Data: simulation telemetry
+
+Without credentials, telemetry endpoints use in-memory development storage.
+For Tiger Cloud, install the optional driver and set the PostgreSQL connection
+string (do not commit it):
+
+```bash
+pip install -e ".[integrations]"
+export TIGER_DATABASE_URL=postgresql://...
+```
+
+Call `POST /integrations/tiger/setup` once. It creates a
+`roboforge_telemetry` hypertable and a one-minute continuous aggregate. Then
+post simulation measurements to `POST /projects/{id}/telemetry` and display
+the rollups from `GET /projects/{id}/telemetry/summary`.
+
+### Presage: consented adaptive interface
+
+Run Presage in a supported camera client. Send only a coarse session state to
+`POST /projects/{id}/adaptive-interface`, for example:
+
+```json
+{"consent": true, "state": "needs_guidance", "confidence": 0.9}
+```
+
+The backend rejects extra fields, does not accept video or vital-sign values,
+and does not store the signal. It returns temporary UI recommendations such as
+plain-language explanations and a slower voice speed.

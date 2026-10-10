@@ -1,7 +1,7 @@
 """HTTP API: projects, catalog and finance endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from roboforge.agents import AGENTS
@@ -10,6 +10,9 @@ from roboforge.finance import TCOInput, build_bom, check_budget, estimate_tco, o
 from roboforge.llm import LLMUnavailable
 from roboforge.models import ChatMessage, Component, Requirements, RobotProject, ValidationRecord
 from roboforge.store import store
+from roboforge.integrations.elevenlabs import ElevenLabsUnavailable, elevenlabs
+from roboforge.integrations.presage import PresageInteractionSignal, recommended_interface
+from roboforge.integrations.tiger import TelemetryEvent, TigerUnavailable, tiger
 
 router = APIRouter()
 
@@ -204,3 +207,94 @@ def architect_chat(project_id: str, body: ChatRequest):
 def run_finance_agent(project_id: str):
     """Full finance pass: BOM + budget + optimization proposal to get within budget."""
     return AGENTS["finance"].run(_get(project_id))
+
+
+# ---- Sponsor integrations ---------------------------------------------------
+
+class SpeechRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=5000)
+    voice_id: str | None = Field(default=None, max_length=200)
+
+
+@router.get("/integrations/status")
+def integration_status():
+    """Credential-safe status: never return keys, URLs, or vendor account data."""
+    return {
+        "elevenlabs": {"configured": elevenlabs.configured, "purpose": "Architect text-to-speech"},
+        "tiger": {"configured": tiger.mode == "tiger", "mode": tiger.mode, "purpose": "simulation telemetry"},
+        "presage": {
+            "configured": "client-side SDK required",
+            "purpose": "opt-in adaptive interface; no biometric storage",
+        },
+    }
+
+
+@router.post("/voice/synthesize", response_class=Response)
+def synthesize_speech(body: SpeechRequest):
+    """Convert an Architect reply to MP3 while keeping the ElevenLabs key server-side."""
+    try:
+        audio = elevenlabs.synthesize(body.text, body.voice_id)
+    except ElevenLabsUnavailable as error:
+        raise HTTPException(503, str(error)) from error
+    return Response(content=audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
+
+
+@router.post("/projects/{project_id}/voice/architect")
+def voice_architect(project_id: str, body: ChatRequest):
+    """Accept a speech-to-text transcript and return an Architect reply ready for TTS."""
+    response = architect_chat(project_id, body)
+    response["speech"] = {
+        "text": response["reply"],
+        "synthesis_endpoint": "/voice/synthesize",
+        "cache": "disabled",
+    }
+    return response
+
+
+@router.post("/projects/{project_id}/telemetry")
+def record_telemetry(project_id: str, body: TelemetryEvent):
+    """Record one simulation metric (e.g. torque_nm, battery_pct, collisions)."""
+    _get(project_id)  # Return 404 instead of accepting orphaned telemetry.
+    try:
+        return tiger.record(project_id, body)
+    except TigerUnavailable as error:
+        raise HTTPException(503, str(error)) from error
+
+
+@router.get("/projects/{project_id}/telemetry/summary")
+def telemetry_summary(project_id: str, scenario_id: str | None = None):
+    _get(project_id)
+    try:
+        return tiger.summary(project_id, scenario_id)
+    except TigerUnavailable as error:
+        raise HTTPException(503, str(error)) from error
+
+
+@router.post("/integrations/tiger/setup")
+def setup_tiger():
+    """Initialize the Tiger hypertable and one-minute continuous aggregate."""
+    try:
+        tiger.initialize()
+    except TigerUnavailable as error:
+        raise HTTPException(503, str(error)) from error
+    return {"status": "ready", "storage": "tiger", "objects": ["roboforge_telemetry", "roboforge_telemetry_1m"]}
+
+
+@router.post("/projects/{project_id}/adaptive-interface")
+def adaptive_interface(project_id: str, body: PresageInteractionSignal):
+    """Map a consented Presage client signal to temporary UI settings.
+
+    Raw camera frames, vital signs, and biometric histories are intentionally
+    not accepted or persisted by this endpoint.
+    """
+    _get(project_id)
+    try:
+        recommendation = recommended_interface(body)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+    return {
+        "source": "presage",
+        "persisted": False,
+        "expires_when_session_ends": True,
+        "recommendation": recommendation,
+    }
