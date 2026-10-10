@@ -1,51 +1,72 @@
-"""Small server-side ElevenLabs text-to-speech client."""
+"""ElevenLabs speech input/output; credentials stay in the backend."""
 from __future__ import annotations
 
-import json
 import os
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+import re
+
+import httpx
 
 
 class ElevenLabsUnavailable(RuntimeError):
-    """Raised when speech synthesis cannot be used safely."""
+    """Sanitized configuration or vendor failure."""
 
 
 class ElevenLabsClient:
-    api_url = "https://api.elevenlabs.io/v1/text-to-speech"
+    base_url = "https://api.elevenlabs.io/v1"
 
     def __init__(self) -> None:
         self.api_key = os.environ.get("ELEVENLABS_API_KEY")
         self.default_voice_id = os.environ.get("ELEVENLABS_VOICE_ID")
-        self.model_id = os.environ.get("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
+        self.model_id = os.environ.get("ELEVENLABS_MODEL_ID", "eleven_flash_v2_5")
+        self.stt_model_id = os.environ.get("ELEVENLABS_STT_MODEL_ID", "scribe_v2")
 
     @property
     def configured(self) -> bool:
         return bool(self.api_key and self.default_voice_id)
 
-    def synthesize(self, text: str, voice_id: str | None = None) -> bytes:
-        """Return MP3 bytes. The API key never reaches a browser client."""
-        selected_voice = voice_id or self.default_voice_id
-        if not self.api_key or not selected_voice:
-            raise ElevenLabsUnavailable(
-                "Set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID on the backend."
-            )
+    def _request(self, path: str, **kwargs) -> httpx.Response:
+        if not self.api_key:
+            raise ElevenLabsUnavailable("Set ELEVENLABS_API_KEY in .env.")
+        try:
+            with httpx.Client(timeout=60, follow_redirects=False) as client:
+                response = client.post(f"{self.base_url}/{path}",
+                                       headers={"xi-api-key": self.api_key}, **kwargs)
+            if not response.is_success:
+                raise ElevenLabsUnavailable(f"ElevenLabs rejected the request ({response.status_code}). Check key permissions, credits, and model access.")
+            return response
+        except httpx.RequestError:
+            raise ElevenLabsUnavailable("ElevenLabs could not be reached.") from None
 
-        payload = json.dumps({"text": text, "model_id": self.model_id}).encode("utf-8")
-        request = Request(
-            f"{self.api_url}/{selected_voice}?output_format=mp3_44100_128",
-            data=payload,
-            headers={"xi-api-key": self.api_key, "Content-Type": "application/json"},
-            method="POST",
+    def synthesize(self, text: str, voice_id: str | None = None, speed: float = 1.0) -> bytes:
+        selected_voice = voice_id or self.default_voice_id
+        if not selected_voice or not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", selected_voice):
+            raise ElevenLabsUnavailable("Set a valid ELEVENLABS_VOICE_ID in .env.")
+        if not 0.7 <= speed <= 1.2:
+            raise ValueError("Voice speed must be between 0.7 and 1.2.")
+        response = self._request(
+            f"text-to-speech/{selected_voice}", params={"output_format": "mp3_44100_128"},
+            json={"text": text, "model_id": self.model_id,
+                  "voice_settings": {"stability": 0.65, "similarity_boost": 0.75,
+                                     "style": 0, "use_speaker_boost": True, "speed": speed}},
+        )
+        if not response.content or not response.headers.get("content-type", "").startswith("audio/"):
+            raise ElevenLabsUnavailable("ElevenLabs returned no playable audio.")
+        return response.content
+
+    def transcribe(self, audio: bytes, content_type: str) -> dict:
+        response = self._request(
+            "speech-to-text", data={"model_id": self.stt_model_id, "diarize": "false",
+                                    "tag_audio_events": "false"},
+            files={"file": ("recording", audio, content_type)},
         )
         try:
-            with urlopen(request, timeout=30) as response:  # noqa: S310 - fixed HTTPS host
-                return response.read()
-        except HTTPError as error:
-            # Do not expose vendor payloads: they can contain account or quota details.
-            raise ElevenLabsUnavailable(f"ElevenLabs rejected the request ({error.code}).") from error
-        except URLError as error:
-            raise ElevenLabsUnavailable("ElevenLabs could not be reached.") from error
+            payload = response.json()
+            text = payload.get("text")
+            if not isinstance(text, str) or not text.strip() or len(text) > 4000:
+                raise ValueError("No supported transcript")
+            return {"text": text.strip(), "language_code": payload.get("language_code")}
+        except (ValueError, AttributeError):
+            raise ElevenLabsUnavailable("ElevenLabs returned an empty or invalid transcript. Use a short recording.") from None
 
 
 elevenlabs = ElevenLabsClient()

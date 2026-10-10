@@ -2,7 +2,7 @@
 
 Each agent reads and proposes changes to the same versioned RobotProject.
 Agents propose; independent tools (VerificationAgent) verify.
-Only FinanceAgent is wired to a real engine today.
+Architect, Mechanical, and Finance agents are wired to their respective engines.
 """
 from __future__ import annotations
 
@@ -98,7 +98,39 @@ class ArchitectAgent(Agent):
 
 
 class MechanicalAgent(Agent):
-    name, output = "mechanical", "CadQuery parts and assembly graph"
+    name, output = "mechanical", "Parametric robot parts, verified STEP/STL/GLB exports"
+
+    def run(self, project: RobotProject, request, **_) -> dict:
+        from roboforge.cad.engine import build
+        from roboforge.cad.spec import PartProposal
+
+        base = None
+        if request.base_design_id:
+            base = project.manufacturing.get("cad_parts", {}).get(request.base_design_id)
+            if base is None:
+                raise ValueError("Base design is not attached to this project revision.")
+        assumptions = []
+        explanation = "Built from explicitly supplied dimensions."
+        spec = request.spec
+        if request.prompt:
+            proposal = generate_structured(
+                """Select one supported robot part and propose dimensions in millimeters.
+Supported templates: chassis_plate (rectangular plate, four corner mounting bores),
+arm_link (rectangular link, two center-line pivot bores), motor_bracket (L bracket,
+four base mounting bores; upright has no mounting pattern yet).
+Use bounded PartSpec fields only. Preserve base parameters for edits unless requested.
+List unconfirmed dimensions, motor compatibility and material choices as assumptions.
+Do not claim a whole robot, curved shape, structural safety or fit has been demonstrated.
+If the user asks for unsupported geometry, explain this limitation and list any proposed
+simplification in assumptions. Do not invent a motor's mounting dimensions.""",
+                f"Requirements: {project.requirements.model_dump_json()}\n"
+                f"Base part: {base['spec'] if base else 'none'}\nRequest: {request.prompt}",
+                PartProposal,
+            )
+            spec, assumptions, explanation = proposal.spec, proposal.assumptions, proposal.explanation
+        result = build(spec)
+        return {**result, "assumptions": assumptions, "explanation": explanation,
+                "base_design_id": request.base_design_id}
 
 
 class ElectricalAgent(Agent):

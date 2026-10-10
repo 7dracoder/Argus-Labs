@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RoboForge · Robot design workbench</title>
+  <link rel="stylesheet" href="/ui/assets/style.css">
+  <script type="module" src="/ui/assets/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="RoboForge home"><span class="mark">RF</span> RoboForge <span class="tag">LAB / 01</span></a>
+    <span class="local">LOCAL PROTOTYPE</span>
+  </header>
+  <main>
+    <section class="intro">
+      <div><p class="eyebrow">FROM IDEA TO A COSTED PART</p><h1>Your robot, one step at a time.</h1><p class="muted">A small workbench connecting CAD, cost, telemetry, and voice. Real API calls. No hidden automation.</p></div>
+      <button id="demo" class="primary">Run guided E2E demo <span aria-hidden="true">↗</span></button>
+    </section>
+    <div id="status" class="status" role="status" aria-live="polite">Connecting to the backend…</div>
+    <section class="services" aria-label="Integration status"><span id="llm-status">Baseten · checking</span><span id="voice-status">ElevenLabs · checking</span><span id="tiger-status">Tiger · checking</span><span id="presage-status">Presage · camera off</span></section>
+    <ol class="flow" aria-label="End-to-end progress">
+      <li data-step="0"><b>01</b><span>Project</span><small>Not run</small></li><li data-step="1"><b>02</b><span>CAD + budget</span><small>Not run</small></li><li data-step="2"><b>03</b><span>Tiger telemetry</span><small>Not run</small></li><li data-step="3"><b>04</b><span>Forge reply + speech</span><small>Not run</small></li><li data-step="4"><b>05</b><span>Speech transcription</span><small>Not run</small></li>
+    </ol>
+    <p class="fineprint">The guided demo creates a new sample project, writes two labelled development measurements, and uses small Baseten / ElevenLabs credits. It transcribes generated speech, not your microphone.</p>
+    <div class="workspace">
+      <aside class="panel project">
+        <div class="panel-heading"><span class="eyebrow">01 / PROJECT</span><span id="revision" class="badge">NO PROJECT</span></div>
+        <h2 id="project-title">Start with a brief.</h2>
+        <form id="project-form">
+          <label>Project name<input id="project-name" value="My household robot" maxlength="200" required></label>
+          <label>What should it do?<textarea id="description" rows="3" maxlength="4000">Carry small objects around a one-floor apartment.</textarea></label>
+          <label>Budget estimate (USD)<input id="budget-input" type="number" min="0" step="1" value="2500" required></label>
+          <button type="submit" class="secondary">Create project</button>
+        </form>
+        <label class="resume-label">Or resume this server session<select id="project-select"><option value="">Choose a project</option></select></label>
+        <div class="metrics"><div><small>PARTS ESTIMATE</small><strong id="bom-total">—</strong></div><div><small>WITH CONTINGENCY</small><strong id="projected">—</strong></div></div>
+        <p id="budget-result" class="muted">Create a project to see its budget.</p>
+        <div id="bom-lines" class="bom-list" aria-label="Bill of materials"></div>
+        <p class="fineprint">Catalog prices are placeholders. Estimates exclude tax, shipping, and labor. Project revisions are in memory and reset when the server restarts.</p>
+      </aside>
+      <section class="panel design">
+        <div class="panel-heading"><span class="eyebrow">02 / MECHANICAL</span><span id="geometry-state" class="badge">AWAITING PART</span></div>
+        <h2>Give the idea geometry.</h2>
+        <div id="preview" class="preview"><p class="muted">Your part will appear here.</p></div>
+        <p class="fineprint">Schematic preview, not a CAD renderer. STEP, STL, and GLB downloads contain the actual generated geometry.</p>
+        <form id="cad-form">
+          <label>Reviewed template<select id="part-kind"><option value="arm_link">Arm link</option><option value="chassis_plate">Chassis plate</option><option value="motor_bracket">Motor bracket</option></select></label>
+          <div class="dimensions"><label>Length · mm<input id="length" type="number" min="40" max="1000" step="1" value="120" required></label><label>Width · mm<input id="width" type="number" min="40" max="1000" step="1" value="40" required></label><label>Thickness · mm<input id="thickness" type="number" min="1" max="50" step="1" value="6" required></label></div>
+          <label>Fabrication estimate · USD<input id="part-price" type="number" min="0" step="0.01" value="8" required></label>
+          <details><summary>Or describe a part to GLM</summary><label>Optional CAD prompt<textarea id="cad-prompt" rows="2" maxlength="4000" placeholder="Create a 120 × 40 × 6 mm arm link…"></textarea></label><p class="fineprint">Uses Baseten. Only the three reviewed templates are supported. Unknown interfaces remain assumptions.</p></details>
+          <button type="submit" class="primary requires-project" disabled>Generate part & update budget</button>
+        </form>
+        <p id="part-details" class="muted"></p><div id="downloads" class="downloads"></div>
+        <p class="warning">Geometry validation is not engineering certification. Load, motor fit, assembly clearance, and manufacturing still need review.</p>
+        <div class="telemetry">
+          <div class="panel-heading"><span class="eyebrow">03 / TIGER DATA</span><button id="seed-telemetry" class="small-button requires-project" disabled>Add test samples</button></div>
+          <p id="telemetry-result" class="muted">No telemetry yet.</p><p class="fineprint">Demo: two battery_pct samples, 40% and 60%, labelled “frontend-demo”. These are development records, not a robot simulation.</p>
+        </div>
+      </section>
+      <section class="panel copilot">
+        <div class="panel-heading"><span class="eyebrow">04 / DESIGN COPILOT</span><span class="badge">FORGE</span></div>
+        <h2>A voice for your design.</h2><p class="muted">Baseten reasons over the project. ElevenLabs handles speech.</p>
+        <div id="conversation" class="conversation" role="log" aria-label="Forge conversation"><p class="empty-chat">Ask about your budget, a part, or the recorded test measurements.</p></div>
+        <audio id="speech" controls hidden aria-label="Play Forge's response"></audio>
+        <p id="transcript" class="fineprint"></p>
+        <p class="fineprint">Speech and transcription can misread numbers. Use the deterministic BOM and budget figures as the source of truth.</p>
+        <form id="voice-form"><label>Your question<textarea id="message" rows="3" maxlength="4000" required placeholder="Why is this design over budget?"></textarea></label><label class="check"><input id="speak" type="checkbox" checked> Generate speech with ElevenLabs</label><button type="submit" class="primary requires-project" disabled>Ask Forge</button></form>
+        <details class="microphone"><summary>Use your microphone instead</summary><label class="check"><input id="mic-consent" type="checkbox"> I consent to recording and sending my speech to ElevenLabs for transcription.</label><button id="record" class="secondary requires-project" disabled>Record up to 15 seconds</button><p class="fineprint">Only starts after a click and browser permission. Stop to send. Unchecking consent discards the recording. Audio is not saved by this app; vendor retention follows account policies.</p></details>
+        <section class="pacing"><span class="eyebrow">PRESAGE / INTERFACE PACING</span><p class="muted">Camera off. Native calibration is not connected to this frontend skeleton.</p><label class="check"><input id="guided" type="checkbox" disabled> Preview guided pacing manually (not a measurement)</label><p id="pacing-result" class="fineprint">Standard explanations · speech at 1×</p><p class="fineprint">This preview sends a synthetic preference to the adaptive-interface API. It does not infer stress, emotion, or mental focus.</p></section>
+        <div id="proposal" hidden><h3>CAD proposal — confirmation required</h3><pre id="proposal-detail"></pre><button id="confirm-proposal" class="secondary requires-project">Confirm & generate proposed part</button></div>
+      </section>
+    </div>
+    <footer><span>ROBOFORGE / HACK KNIGHT PROTOTYPE</span><a href="/docs" target="_blank" rel="noopener">API reference ↗</a><span>Local only · no hardware control</span></footer>
+  </main>
+</body>
+</html>

@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class PresageInteractionSignal(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     consent: bool
     state: Literal["focused", "needs_guidance", "needs_break"]
@@ -23,6 +23,10 @@ def recommended_interface(signal: PresageInteractionSignal) -> dict:
     """Return ephemeral presentation settings, without persisting the signal."""
     if not signal.consent:
         raise ValueError("Presage adaptation requires explicit, current-session consent.")
+
+    if signal.confidence < 0.8:
+        return {"mode": "standard", "language_level": "technical", "voice_speed": 1.0,
+                "suggested_message": None, "reason": "Insufficient measurement quality for adaptation."}
 
     if signal.state == "needs_guidance":
         return {

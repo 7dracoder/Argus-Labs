@@ -8,15 +8,21 @@ dependencies = [
     "pydantic==2.14.0",
     "uvicorn==0.54.0",
     "google-genai==2.29.0",
+    "httpx==0.28.1",
+    "python-dotenv>=1.0,<2",
 ]
 
 [project.optional-dependencies]
 dev = ["httpx==0.28.1"]
 integrations = ["psycopg[binary]>=3.2,<4"]
+cad = ["cadgen==0.7.20"]
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["roboforge", "roboforge.finance"]
+[tool.setuptools.packages.find]
+include = ["roboforge*"]
+
+[tool.setuptools.package-data]
+roboforge = ["web/*.html", "web/*.css", "web/*.js"]
