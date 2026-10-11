@@ -21,6 +21,7 @@ from roboforge.integrations.elevenlabs import ElevenLabsUnavailable, elevenlabs
 from roboforge.integrations.presage import PresageInteractionSignal, recommended_interface
 from roboforge.integrations.tiger import TelemetryEvent, TigerUnavailable, tiger
 from roboforge.cad.engine import ARTIFACTS, CADBuildFailed, CADUnavailable, root_directory, runtime_status
+from roboforge.cad.profiles import suggest_signature_part, template_catalog
 from roboforge.cad.spec import MechanicalRequest
 
 router = APIRouter()
@@ -220,7 +221,18 @@ def run_finance_agent(project_id: str):
 
 @router.get("/cad/status")
 def cad_status():
-    return runtime_status()
+    return {**runtime_status(), "kinds": template_catalog()}
+
+
+@router.get("/projects/{project_id}/cad/suggest")
+def suggest_cad_part(project_id: str):
+    """Return a distinctive signature part sized for this project's robot brief."""
+    project = _get(project_id)
+    spec = suggest_signature_part(project.requirements)
+    return {"spec": spec, "reason": (
+        f"Matched mobility={project.requirements.mobility or 'unspecified'} and "
+        f"tasks={project.requirements.tasks or ['(from description)']} to a reviewed {spec.kind}."
+    )}
 
 
 @router.post("/projects/{project_id}/agents/mechanical")

@@ -34,8 +34,9 @@ def runtime_status() -> dict:
         version = importlib.metadata.version("cadgen")
     except importlib.metadata.PackageNotFoundError:
         version = None
+    from roboforge.cad.spec import PART_KINDS
     return {"configured": version == CADGEN_VERSION, "version": version,
-            "required_version": CADGEN_VERSION, "templates": ["chassis_plate", "arm_link", "motor_bracket"]}
+            "required_version": CADGEN_VERSION, "templates": list(PART_KINDS)}
 
 
 def build(spec: PartSpec) -> dict:
@@ -43,7 +44,7 @@ def build(spec: PartSpec) -> dict:
         raise CADUnavailable("Install the CAD runtime with: pip install -e '.[cad]'")
     # Code and dependency changes invalidate our cache, even with identical dimensions.
     closure = b"".join((Path(__file__).parent / f).read_bytes() for f in (
-        "spec.py", "templates.py", "worker.py", "engine.py"))
+        "spec.py", "templates.py", "profiles.py", "worker.py", "engine.py"))
     normalized = spec.model_dump_json()
     design_id = hashlib.sha256(CADGEN_VERSION.encode() + closure + normalized.encode()).hexdigest()
     directory = root_directory() / design_id
