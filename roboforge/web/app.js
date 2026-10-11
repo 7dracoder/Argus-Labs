@@ -1,6 +1,9 @@
 const $ = id => document.getElementById(id);
 const state = {project: null, history: [], audioURL: null, lastAudio: null, proposal: null,
-  interaction: null, busy: false, micPending: false, recorder: null, stream: null, recordingTimer: null, discard: false};
+  interaction: null, busy: false, micPending: false, recorder: null, stream: null, recordingTimer: null, discard: false,
+  suggestedSpec: null};
+const KIND_NAMES = {chassis_plate: 'Chassis plate', arm_link: 'Arm link', motor_bracket: 'Motor bracket',
+  wheel_hub: 'Drive wheel hub', gripper_jaw: 'Gripper jaw', sensor_mount: 'Sensor mount'};
 const money = value => new Intl.NumberFormat('en-US', {style: 'currency', currency: 'USD'}).format(value);
 
 async function api(path, body, raw = false, signal) {
@@ -119,6 +122,7 @@ function sketch(spec) {
   return svg;
 }
 function applySuggestedSpec(spec) {
+  state.suggestedSpec = spec;
   $('part-kind').value = spec.kind;
   $('length').value = spec.length_mm;
   $('width').value = spec.width_mm;
@@ -149,10 +153,24 @@ async function generatePart(spec, prompt) {
   const payload = {estimated_unit_cost_usd: Number($('part-price').value)};
   if (prompt) payload.prompt = prompt;
   else {
-    payload.spec = {...spec};
-    if (['motor_bracket', 'sensor_mount'].includes(spec.kind)) payload.spec.hole_inset_mm = Math.max(14, Number(spec.hole_inset_mm) || 14);
+    const suggested = state.suggestedSpec && state.suggestedSpec.kind === spec.kind ? state.suggestedSpec : null;
+    payload.spec = {
+      name: spec.name || suggested?.name || KIND_NAMES[spec.kind] || 'Robot part',
+      kind: spec.kind,
+      length_mm: Number(spec.length_mm),
+      width_mm: Number(spec.width_mm),
+      thickness_mm: Number(spec.thickness_mm),
+      ...(suggested ? {
+        hole_diameter_mm: suggested.hole_diameter_mm,
+        hole_inset_mm: suggested.hole_inset_mm,
+        bracket_height_mm: suggested.bracket_height_mm,
+        material: suggested.material,
+      } : {}),
+    };
+    if (['motor_bracket', 'sensor_mount'].includes(spec.kind))
+      payload.spec.hole_inset_mm = Math.max(14, Number(payload.spec.hole_inset_mm) || 14);
     if (spec.kind === 'wheel_hub') {
-      payload.spec.hole_diameter_mm = Number(spec.hole_diameter_mm) || Math.max(8, Math.round(Number(spec.length_mm) * 0.15));
+      payload.spec.hole_diameter_mm = Number(payload.spec.hole_diameter_mm) || Math.max(8, Math.round(Number(spec.length_mm) * 0.15));
       if (!(payload.spec.width_mm < payload.spec.length_mm - 2 * payload.spec.hole_diameter_mm))
         payload.spec.width_mm = Math.round(payload.spec.length_mm * 0.6);
     }
