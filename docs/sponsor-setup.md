@@ -42,6 +42,24 @@ the connection string. Setup affects only Argus Labs' named schema objects.
 Projects themselves still use the existing in-memory revision store; this
 integration persists telemetry, not the whole project model.
 
+The connection layer now budgets eight seconds across resolved IP addresses,
+rather than waiting ten seconds for each address (the current endpoint has six).
+It keeps the DNS hostname for TLS/SNI, rotates candidates between checks, and
+backs off connection failures for 15 seconds. The health endpoint returns safe
+`error_code` and `retry_after_seconds` fields; authentication, schema, DNS, TLS
+and connection timeouts are distinct. Advanced → Tiger → **Check connection**
+explicitly retries (`GET /integrations/tiger/health?retry=true`). Schema setup is
+offered only after a successful connection with missing schema. Configured
+failures never silently write to memory.
+
+October 11 connectivity audit: the console reports Ready, PostgreSQL 18.6 and
+TimescaleDB 2.30.2. Its SQL editor confirms both telemetry objects exist. The
+public endpoint on port 36579 accepts TCP but does not answer PostgreSQL SSL
+negotiation from this computer, reproduced with Python and Node. Direct TLS also
+fails. This is still an external connection-path blocker, not a successful app
+write/read test. Try the same `.env` on another network; do not disable SSL,
+reset the password, upgrade the plan, or claim in-memory samples are Tiger data.
+
 The live verification leaves two labelled rows for a `setup-smoke-*` project.
 Those are development measurements, not simulated or real robot results.
 

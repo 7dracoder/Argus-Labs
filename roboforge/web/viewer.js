@@ -11,9 +11,15 @@ const FINISHES = {
   rubber: {metalness: 0, roughness: 0.92}, pcb: {metalness: 0.1, roughness: 0.5},
   glass: {metalness: 0.2, roughness: 0.05},
 };
-function parseName(name = '') {
+export function parseName(name = '') {
   const [head, component, instance] = name.split('__');
-  const [role, finish] = (head || '').split('.');
+  let [role, finish] = (head || '').split('.');
+  // GLTFLoader sanitizes node names for animation bindings, removing periods.
+  // Preserve role/finish selection for e.g. "cover.plastic" -> "coverplastic".
+  if (!finish) {
+    const suffix = Object.keys(FINISHES).find(key => role.endsWith(key) && role.length > key.length);
+    if (suffix) { finish = suffix; role = role.slice(0, -suffix.length); }
+  }
   return {role: role || 'part', finish: FINISHES[finish] ? finish : 'plastic', component_id: component && component !== 'none' ? component : null,
     node: Number.parseInt(instance, 10) || 0};
 }
@@ -43,6 +49,33 @@ export function webglAvailable() {
 
 const HIGHLIGHT = new THREE.Color(0xf2b134);
 
+/** Keep all solids belonging to one CAD instance together while exploding.
+ * World-space offsets are converted into each mesh parent's local frame.
+ * This is a presentation transform only: geometry and downloads never change.
+ */
+export function explosionPoses(meshes) {
+  const bounds = new THREE.Box3(), groups = new Map();
+  meshes.forEach((mesh, i) => {
+    mesh.updateWorldMatrix(true, false);
+    const box = new THREE.Box3().setFromObject(mesh);
+    bounds.union(box);
+    const key = mesh.userData.node ?? `mesh-${i}`;
+    if (!groups.has(key)) groups.set(key, new THREE.Box3());
+    groups.get(key).union(box);
+  });
+  const center = bounds.getCenter(new THREE.Vector3());
+  const size = bounds.getSize(new THREE.Vector3());
+  const distance = Math.max(size.x, size.y, size.z) * .65;
+  return meshes.map((mesh, i) => {
+    const direction = groups.get(mesh.userData.node ?? `mesh-${i}`).getCenter(new THREE.Vector3()).sub(center);
+    if (direction.lengthSq() < 1e-10) direction.set(0, 1, 0);
+    direction.normalize().multiplyScalar(distance);
+    const world = mesh.getWorldPosition(new THREE.Vector3());
+    const local = point => mesh.parent ? mesh.parent.worldToLocal(point) : point;
+    return {mesh, position: mesh.position.clone(), offset: local(world.clone().add(direction)).sub(local(world.clone()))};
+  });
+}
+
 export class Viewer {
   constructor(container, {onSelect} = {}) {
     this.container = container;
@@ -68,16 +101,21 @@ export class Viewer {
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     this.scene.environmentIntensity = 0.8;
     this.camera = new THREE.PerspectiveCamera(32, 1, 0.001, 100);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a9580, 0.35));
+    this.scene.add(new THREE.HemisphereLight(0xdff4ff, 0x152330, 0.9));
     this.key = new THREE.DirectionalLight(0xffffff, 2.2); this.key.position.set(3, 6, 4);
     this.key.castShadow = true; this.key.shadow.mapSize.set(2048, 2048); this.key.shadow.bias = -0.0004;
     this.key.shadow.radius = 4;
     this.scene.add(this.key, this.key.target);
-    const fill = new THREE.DirectionalLight(0xffffff, 0.4); fill.position.set(-4, 2, -3); this.scene.add(fill);
+    const fill = new THREE.DirectionalLight(0x9ae8de, 1.3); fill.position.set(-4, 2, -3); this.scene.add(fill);
     this.root = new THREE.Group(); this.scene.add(this.root);
 
     this.controls = new OrbitControls(this.camera, this.canvas);
     this.controls.enableDamping = true;
+    this.controls.autoRotateSpeed = 1;
+    this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.visible = true;
+    this.visibilityObserver = new IntersectionObserver(([entry]) => { this.visible = entry.isIntersecting; });
+    this.visibilityObserver.observe(container);
 
     this.hint = document.createElement('span');
     this.hint.className = 'viewer-hint';
@@ -99,7 +137,10 @@ export class Viewer {
 
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(container);
-    const tick = () => { this.controls.update(); this.renderer.render(this.scene, this.camera); this.frame = requestAnimationFrame(tick); };
+    const tick = () => {
+      if (this.visible && !document.hidden) { this.controls.update(); this.renderer.render(this.scene, this.camera); }
+      this.frame = requestAnimationFrame(tick);
+    };
     tick();
   }
 
@@ -117,7 +158,7 @@ export class Viewer {
 
   clear() {
     this.root.traverse(o => { o.geometry?.dispose(); [o.material].flat().forEach(m => m?.dispose?.()); });
-    this.root.clear(); this.meshes = [];
+    this.root.clear(); this.meshes = []; this.poses = []; this.controls.autoRotate = false;
     for (const extra of [this.grid, this.ground]) extra?.removeFromParent();
     this.grid = this.ground = null;
   }
@@ -163,7 +204,7 @@ export class Viewer {
     const token = ++this.token;
     const group = new THREE.Group();
     for (const [index, n] of assembly.nodes.entries()) {
-      const info = {component_id: n.component_id, label: n.label, node: index};
+      const info = {component_id: n.component_id, label: n.label, role: n.role, node: index};
       let object;
       if (n.shape === 'glb' && n.glb) {
         try {
@@ -194,6 +235,16 @@ export class Viewer {
     this.attach(`3D layout of ${assembly.robot_type}`);
   }
 
+  /** Hide only protective skins for inspection; normal view keeps them opaque. */
+  inspectInternals(enabled, assembly) {
+    const closedFrame = ['delivery_rover', 'tracked_explorer'].includes(assembly.archetype);
+    for (const mesh of this.meshes) {
+      const role = mesh.userData.role;
+      mesh.visible = !enabled || !(['cover', 'enclosure', 'round_body', 'amr_body', 'deck'].includes(role)
+        || (closedFrame && role === 'frame'));
+    }
+  }
+
   /** Render one generated GLB part at its real size. */
   async showPart(url, label) {
     const token = ++this.token;
@@ -213,8 +264,8 @@ export class Viewer {
     const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
     const radius = Math.max(size.x, size.y, size.z) || 0.1;
     const floor = box.min.y - (isRobot ? 0 : radius * 0.02);
-    this.grid = new THREE.GridHelper(radius * 4, 32, 0xb3bcab, 0xdde2d6);
-    this.grid.material.transparent = true; this.grid.material.opacity = 0.55;
+    this.grid = new THREE.GridHelper(radius * 4, 32, 0x547c8d, 0x2d4656);
+    this.grid.material.transparent = true; this.grid.material.opacity = 0.45;
     this.grid.position.set(center.x, floor, center.z);
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(radius * 8, radius * 8), new THREE.ShadowMaterial({opacity: 0.22}));
     this.ground.rotation.x = -Math.PI / 2; this.ground.position.set(center.x, floor + 0.0005, center.z);
@@ -229,6 +280,30 @@ export class Viewer {
     this.camera.position.set(center.x + d * 0.75, center.y + d * 0.55, center.z + d * 0.9);
     this.controls.target.copy(center);
     this.controls.minDistance = radius * 0.3; this.controls.maxDistance = radius * 10;
+    this.controls.update();
+    this.home = {center: center.clone(), distance: this.camera.position.distanceTo(center)};
+    this.poses = explosionPoses(this.meshes);
+    this.exploded = 0;
+  }
+
+  setExploded(amount) {
+    const value = Math.max(0, Math.min(1, Number(amount) || 0));
+    for (const pose of this.poses || []) pose.mesh.position.copy(pose.position).addScaledVector(pose.offset, value);
+    this.root.updateMatrixWorld(true);
+    // Preserve the user's orbit and zoom while opening space for separated parts.
+    const factor = (1 + value * 1.3) / (1 + (this.exploded || 0) * 1.3);
+    this.camera.position.sub(this.controls.target).multiplyScalar(factor).add(this.controls.target);
+    this.exploded = value;
+    this.controls.update();
+  }
+
+  setSpin(enabled) { this.controls.autoRotate = Boolean(enabled) && !this.reduced; return this.controls.autoRotate; }
+
+  resetView() {
+    this.setExploded(0); this.setSpin(false);
+    if (!this.home) return;
+    this.controls.target.copy(this.home.center);
+    this.camera.position.copy(this.home.center).add(new THREE.Vector3(.75, .55, .9).normalize().multiplyScalar(this.home.distance));
     this.controls.update();
   }
 

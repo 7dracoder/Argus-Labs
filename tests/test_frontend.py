@@ -15,10 +15,22 @@ class FrontendTests(unittest.TestCase):
         self.assertIn("script-src 'self'", page.headers['content-security-policy'])
         self.assertIn('camera=()', page.headers['permissions-policy'])
         self.assertNotIn('<script>', page.text)
-        for asset in ['app.js', 'style.css']:
+        for asset in ['app.js', 'style.css', 'studio.css', 'viewer.js', 'showcase.js']:
             response = self.client.get('/ui/assets/' + asset)
             self.assertEqual(response.status_code, 200)
             self.assertTrue(response.content)
+
+    def test_robot_studio_preserves_build_flows_and_has_real_exploration_controls(self):
+        page = self.client.get('/').text
+        for control in ['showcase-stage', 'sc-spin', 'sc-reset', 'explode', 'explode-value',
+                        'robot-viewport', 'assembly-viewport', 'inspect-internals', 'to-assemble', 'asm-prints']:
+            self.assertIn(f'id="{control}"', page)
+        self.assertIn('studio.css', page)
+        self.assertIn('Visual inspection only', page)
+        source = self.client.get('/ui/assets/app.js').text
+        self.assertIn('setExploded', source)
+        self.assertIn('requestFullscreen', source)
+        self.assertIn('setAngle', source)
 
     def test_private_files_are_not_served_and_api_routes_still_work(self):
         for path in ['/.env', '/ui/assets/.env', '/ui/assets/%2e%2e/%2e%2e/.env', '/ui/assets/../../pyproject.toml']:

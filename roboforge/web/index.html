@@ -3,19 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Argus Labs · Design a robot</title>
+  <title>Argus Labs · Robotics Design Studio</title>
   <link rel="icon" type="image/svg+xml" href="/ui/assets/logo.svg?v=2">
-  <link rel="stylesheet" href="/ui/assets/style.css?v=4">
-  <script type="module" src="/ui/assets/app.js?v=4"></script>
+  <link rel="stylesheet" href="/ui/assets/style.css?v=5">
+  <link rel="stylesheet" href="/ui/assets/studio.css?v=1">
+  <script type="module" src="/ui/assets/app.js?v=7"></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <div class="page">
   <nav class="nav">
-    <a class="brand" href="/" aria-label="Argus Labs home"><img class="logo" src="/ui/assets/logo.svg?v=2" alt="" width="26" height="26">Argus Labs<span>AI robot design workspace</span></a>
+    <a class="brand" href="/" aria-label="Argus Labs home"><img class="logo" src="/ui/assets/logo.svg?v=2" alt="" width="26" height="26">ARGUS<span>Robotics design studio</span></a>
     <div class="nav-links">
       <button id="new-robot" class="link-button" hidden>+ New robot</button>
+      <a id="explore-robots" href="#showcase">Explore robots</a>
       <a href="/docs" target="_blank" rel="noopener">API ↗</a>
+      <span class="nav-local"><i aria-hidden="true"></i>Local studio</span>
     </div>
   </nav>
 
@@ -40,17 +43,19 @@
       <div class="hero-grid">
       <div class="hero-copy">
       <div class="hero">
-        <span class="hero-tag"><i aria-hidden="true"></i>AI robot design workspace</span>
-        <h1 id="start-title">Describe a job.<br><span>Get a real robot.</span></h1>
-        <p class="lead">Argus picks catalog parts that fit your budget, sizes motors, battery and arm, and builds the robot as real CAD with every cost shown.</p>
+        <span class="hero-tag"><i aria-hidden="true"></i>From imagination to engineering</span>
+        <h1 id="start-title">Your idea.<br><span>In motion.</span></h1>
+        <p class="lead">Give your robot a purpose. Explore its design in 3D, see every component, then take it from the screen to your workbench.</p>
+        <div class="hero-deliverables"><span>01 / REAL CAD</span><span>02 / PARTS & COST</span><span>03 / BUILD GUIDE</span></div>
       </div>
 
       <form id="start-form" class="brief-form">
+        <div class="brief-heading"><span class="eyebrow">Design your robot</span><span class="brief-marker">PROMPT → CAD</span></div>
         <label class="visually-hidden" for="brief">Describe your robot</label>
-        <textarea id="brief" rows="4" maxlength="4000" required placeholder="e.g. A robot that picks up clothes in my apartment, carries up to 2 kg and responds to my voice."></textarea>
+        <textarea id="brief" rows="3" maxlength="4000" required placeholder="A robot that picks up clothes, carries 2 kg and responds to my voice…"></textarea>
         <div class="brief-row">
           <label class="budget-field">Budget<span class="prefix">$</span><input id="budget" type="number" min="0" step="50" value="2500" required aria-label="Budget in US dollars"></label>
-          <button type="submit" class="button big">Design my robot →</button>
+          <button type="submit" class="button big">Generate robot ↗</button>
         </div>
         <div class="examples" aria-label="Examples">
           <span class="muted">Try:</span>
@@ -61,7 +66,7 @@
       </form>
 
       <div class="start-alt">
-        <button id="sample" class="quiet">Open the sample robot</button>
+        <button id="sample" class="quiet">Try a sample build ↗</button>
         <label class="resume">or continue a robot from this session
           <select id="project-select"><option value="">Choose a robot</option></select>
         </label>
@@ -69,23 +74,36 @@
       </div>
 
       <figure id="showcase" class="showcase" aria-labelledby="sc-title">
-        <div id="showcase-stage" class="showcase-stage loading"><p class="sc-loading">Building CAD models…</p></div>
-        <div class="sc-top"><span class="sc-live"><i aria-hidden="true"></i>Live CAD</span><span id="sc-count" class="sc-count">01 / 08</span></div>
+        <div id="showcase-stage" class="showcase-stage loading"><p class="sc-loading">Loading native CAD geometry…</p></div>
+        <div class="sc-top"><span class="sc-live"><i aria-hidden="true"></i>Interactive 3D / CAD collection</span><span id="sc-count" class="sc-count">— / —</span></div>
+        <div class="sc-controls" role="group" aria-label="Showroom controls">
+          <button id="sc-spin" class="quiet" type="button" aria-pressed="false" data-static="1">Auto rotate</button>
+          <button id="sc-reset" class="quiet" type="button" data-static="1">Reset view</button>
+          <button class="quiet" type="button" data-fullscreen="showcase" data-static="1" aria-label="Expand robot showroom">⛶ Expand</button>
+        </div>
+        <span class="sc-watermark" aria-hidden="true">ARGUS / LABS</span>
+        <span class="sc-interact">DRAG TO ORBIT · SCROLL TO ZOOM</span>
         <figcaption class="sc-caption">
+          <div class="sc-description">
           <span id="sc-kind" class="sc-kind">Robot types</span>
           <h2 id="sc-title">Every job gets its own body</h2>
           <p id="sc-blurb">Real CAD robots designed by Argus. Drag to turn one.</p>
+          </div>
+          <div class="sc-data">
           <dl id="sc-specs" class="sc-specs"></dl>
           <button id="sc-use" type="button" class="sc-use" data-static="1" hidden>Design one like this <span aria-hidden="true">→</span></button>
+          </div>
         </figcaption>
         <ol id="sc-dots" class="sc-dots" aria-label="Robot types"></ol>
       </figure>
       </div>
 
+      <div class="collection-note"><span>EXPLORE → DESIGN → ASSEMBLE</span><p>Native CAD geometry, not a render. These are prototype layouts; engineering checks still matter.</p></div>
+
       <ol class="how" aria-label="How it works">
-        <li><b>1</b><h3>Describe</h3><p>Say what it should do, how much it carries, and what you can spend.</p></li>
-        <li><b>2</b><h3>See it built</h3><p>Argus sizes motors, battery and arm, then assembles the robot in 3D.</p></li>
-        <li><b>3</b><h3>Build it</h3><p>Check every part and price, then follow the print list, wiring table and step-by-step assembly.</p></li>
+        <li><b>01 / DEFINE</b><h3>A purpose. A budget.</h3><p>Describe the job, payload and runtime. Argus selects and sizes catalog parts for your brief.</p></li>
+        <li><b>02 / EXPLORE</b><h3>Every part, in perspective.</h3><p>Orbit the actual CAD assembly. Peel back the covers, explode the model and inspect its components.</p></li>
+        <li><b>03 / MAKE</b><h3>From viewport to workbench.</h3><p>Download available printable parts. Follow the staged 3D assembly and wire-by-wire build guide.</p></li>
       </ol>
     </section>
 
@@ -114,8 +132,23 @@
             </div>
             <span id="geometry-state" class="badge">Layout preview</span>
           </div>
-          <div id="stage" class="stage"><p class="placeholder">Your robot will appear here.</p></div>
+          <div class="viewport-shell" id="robot-viewport">
+            <div id="stage" class="stage"><p class="placeholder">Your robot will appear here.</p></div>
+            <div class="viewport-label" aria-hidden="true">ARGUS / DESIGN REVIEW</div>
+            <div class="viewport-tools" role="group" aria-label="Robot camera controls" data-viewer="robot">
+              <button type="button" data-angle="default" data-static="1" aria-pressed="true">3D</button>
+              <button type="button" data-angle="front" data-static="1" aria-pressed="false">Front</button>
+              <button type="button" data-angle="side" data-static="1" aria-pressed="false">Side</button>
+              <button type="button" data-angle="top" data-static="1" aria-pressed="false">Top</button>
+              <button type="button" data-spin data-static="1" aria-pressed="false">Rotate</button>
+              <button type="button" data-reset data-static="1">Reset</button>
+              <button type="button" data-fullscreen="robot-viewport" data-static="1" aria-label="Expand robot viewport">⛶</button>
+            </div>
+          </div>
+          <div class="explode-control"><label for="explode">Exploded view</label><input id="explode" type="range" min="0" max="100" step="1" value="0" aria-describedby="explode-note"><output id="explode-value" for="explode">0%</output><small id="explode-note">Visual inspection only · not an assembly instruction</small></div>
           <div class="stage-foot">
+            <label><input id="inspect-internals" type="checkbox"> Inspect internals (hide covers)</label>
+            <p id="protection-summary" class="muted"></p>
             <dl class="facts">
               <div><dt>Wheels</dt><dd id="fact-wheels">—</dd></div>
               <div><dt>Arm joints</dt><dd id="fact-joints">—</dd></div>
@@ -268,6 +301,7 @@
       <div class="next-row">
         <p><b>Happy with the design?</b> <span class="muted">Next: print the parts, wire it up and put it together step by step.</span></p>
         <button id="to-assemble" class="button big requires-project" type="button" disabled>Next: how to assemble →</button>
+        <button id="print-option" class="quiet requires-project" type="button" disabled>3D-print parts →</button>
       </div>
     </section>
 
@@ -285,14 +319,34 @@
         </div>
         <button id="back-to-design" class="quiet" type="button" data-static="1">← Back to the design</button>
       </header>
+      <article class="card"><div class="card-body">
+        <p><b>Prototype assembly plan.</b> Verify fit, strength and datasheet pinouts before building or applying power.</p>
+        <details><summary>Safety notes, covers & housing</summary>
+          <ul id="asm-notes" class="asm-notes"></ul>
+          <h3>Covers & housing</h3><ul id="asm-protection" class="asm-list"></ul>
+        </details>
+        <button id="save-guide" class="quiet" type="button" data-static="1">Download assembly plan (JSON)</button>
+      </div></article>
       <div class="asm-grid">
         <article class="card stage-card" aria-label="Step-by-step 3D view">
           <div class="card-heading"><span class="eyebrow" id="asm-count">Step 1</span><span id="asm-picked" class="badge">Click a part to name it</span></div>
-          <div id="asm-stage" class="stage"><p class="placeholder">Loading the robot…</p></div>
+          <div class="viewport-shell" id="assembly-viewport">
+            <div id="asm-stage" class="stage"><p class="placeholder">Loading the robot…</p></div>
+            <div class="viewport-label" aria-hidden="true">ARGUS / ASSEMBLY SEQUENCE</div>
+            <div class="viewport-tools" role="group" aria-label="Assembly camera controls" data-viewer="assembly">
+              <button type="button" data-angle="default" data-static="1" aria-pressed="true">3D</button>
+              <button type="button" data-angle="front" data-static="1" aria-pressed="false">Front</button>
+              <button type="button" data-angle="side" data-static="1" aria-pressed="false">Side</button>
+              <button type="button" data-angle="top" data-static="1" aria-pressed="false">Top</button>
+              <button type="button" data-reset data-static="1">Reset</button>
+              <button type="button" data-fullscreen="assembly-viewport" data-static="1" aria-label="Expand assembly viewport">⛶</button>
+            </div>
+          </div>
           <div class="asm-current" aria-live="polite">
             <h2 id="asm-current-title">—</h2>
             <ul id="asm-current-items"></ul>
             <p id="asm-current-parts" class="muted"></p>
+            <a id="asm-detail-link" href="#wiring-title" hidden>View wiring table →</a>
           </div>
           <div class="asm-nav">
             <button id="asm-prev" class="quiet" type="button" data-static="1">← Previous</button>
@@ -319,15 +373,24 @@
           <p id="wiring-summary" class="muted"></p>
           <div class="table-wrap">
             <table class="wiring">
-              <thead><tr><th scope="col">From → to</th><th scope="col">Voltage</th><th scope="col">Current</th><th scope="col">Wire</th><th scope="col">Connector</th><th scope="col">Fuse</th></tr></thead>
+              <thead><tr><th scope="col">From → to</th><th scope="col">Voltage</th><th scope="col">Est. current</th><th scope="col">Candidate wire</th><th scope="col">Connector / pinout</th><th scope="col">Est. fuse</th></tr></thead>
               <tbody id="wiring-rows"></tbody>
             </table>
           </div>
           <ul id="wiring-notes" class="asm-notes"></ul>
+          <p class="muted">Manufacturer references (confirm your exact purchased variant):
+            <a href="https://emanual.robotis.com/docs/en/parts/interface/u2d2_power_hub/" target="_blank" rel="noopener noreferrer">ROBOTIS power hub</a> ·
+            <a href="https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/" target="_blank" rel="noopener noreferrer">XM430 T/R pinouts</a> ·
+            <a href="https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/hardware_layout.html" target="_blank" rel="noopener noreferrer">Jetson Orin Nano dev kit</a>
+          </p>
         </div>
       </article>
 
       <div class="ws-row">
+        <article class="card" aria-labelledby="buy-parts-title">
+          <div class="card-heading"><span class="eyebrow" id="buy-parts-title">Buy or fabricate · not print-ready</span></div>
+          <div class="card-body"><p class="muted">A CAD preview of a purchased motor, battery or body does not make it 3D-printable.</p><ul id="asm-buy" class="asm-list"></ul></div>
+        </article>
         <article class="card" aria-labelledby="extras-title">
           <div class="card-heading"><span class="eyebrow" id="extras-title">Electrical parts for the harness</span></div>
           <div class="card-body"><p class="muted">The wiring kit in the parts list needs to include these.</p><ul id="asm-extras" class="asm-list"></ul></div>
@@ -359,6 +422,9 @@
           </section>
           <section>
             <h3>Tiger Data telemetry</h3>
+            <p id="tiger-detail" class="muted" aria-live="polite">Checking database connectivity…</p>
+            <button id="retry-tiger" class="quiet" type="button" data-static="1">Check connection</button>
+            <button id="setup-tiger" class="quiet" type="button" data-static="1" hidden>Initialize telemetry schema</button>
             <p id="telemetry-result" class="muted">No telemetry yet.</p>
             <button id="seed-telemetry" class="quiet requires-project" disabled>Add two test samples</button>
           </section>

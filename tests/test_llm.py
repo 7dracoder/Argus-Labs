@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from roboforge.cad.spec import PartProposal, PartSpec
 from roboforge.llm import LLMResponseError, LLMUnavailable, generate_structured, llm_status
 from roboforge.main import app
+from roboforge import llm
 
 REAL_CLIENT = httpx.Client
 
@@ -20,6 +21,8 @@ class LLMTests(unittest.TestCase):
         self.environment = patch.dict(os.environ, {"GLM_API_KEY": "test-secret"}, clear=True)
         self.environment.start()
         self.addCleanup(self.environment.stop)
+        llm._fallback_until.clear()
+        self.addCleanup(llm._fallback_until.clear)
 
     def mock_transport(self, handler):
         return patch("httpx.Client", side_effect=lambda **kwargs: REAL_CLIENT(
@@ -101,6 +104,105 @@ class LLMTests(unittest.TestCase):
             with patch("roboforge.llm._gemini_client", return_value=client):
                 self.assertEqual(generate_structured("Engineer", "Arm", PartProposal), proposal)
                 self.assertEqual(client.models.generate_content.call_args.kwargs["model"], "future-model")
+                config = client.models.generate_content.call_args.kwargs["config"]
+                self.assertEqual(config.response_json_schema, PartProposal.model_json_schema())
+                self.assertIsNone(config.response_schema)
+                self.assertFalse(config.response_json_schema["$defs"]["PartSpec"]["additionalProperties"])
+
+    def test_gemini_quota_uses_baseten_then_retries_primary_after_cooldown(self):
+        from google.genai.errors import ClientError
+        proposal = PartProposal(spec=PartSpec(kind="arm_link"), explanation="Arm link")
+        client = Mock()
+        client.models.generate_content.side_effect = [
+            ClientError(429, {"error": {"status": "RESOURCE_EXHAUSTED", "message": "gemini-key private"}}),
+            SimpleNamespace(parsed=proposal),
+        ]
+        clock = [100.0]
+        def handler(request):
+            self.assertEqual(str(request.url), "https://inference.baseten.co/v1/chat/completions")
+            self.assertEqual(request.headers["Authorization"], "Bearer baseten-secret")
+            self.assertEqual(json.loads(request.content)["model"], "zai-org/GLM-5.3")
+            return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {
+                "content": proposal.model_dump_json()}}]})
+        with patch.dict(os.environ, {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "gemini-key",
+                                    "LLM_FALLBACK_PROVIDER": "baseten", "BASETEN_API_KEY": "baseten-secret"}, clear=True), \
+                patch("roboforge.llm._gemini_client", return_value=client), \
+                patch("roboforge.llm.monotonic", side_effect=lambda: clock[0]), self.mock_transport(handler):
+            self.assertEqual(generate_structured("Engineer", "Arm", PartProposal), proposal)
+            state = llm_status()
+            self.assertEqual(state["active_provider"], "baseten")
+            self.assertEqual(state["primary_retry_after_seconds"], 60)
+            self.assertNotIn("gemini-key", json.dumps(state))
+            self.assertNotIn("baseten-secret", json.dumps(state))
+            self.assertEqual(generate_structured("Engineer", "Arm", PartProposal), proposal)
+            self.assertEqual(client.models.generate_content.call_count, 1)
+            self.assertEqual(os.environ["LLM_PROVIDER"], "gemini")
+            clock[0] += 61
+            self.assertEqual(generate_structured("Engineer", "Arm", PartProposal), proposal)
+            self.assertEqual(client.models.generate_content.call_count, 2)
+            self.assertEqual(llm_status()["active_provider"], "gemini")
+
+    def test_gemini_errors_other_than_quota_do_not_use_backup(self):
+        from google.genai.errors import APIError
+        for code in (400, 401, 403, 404, 500, 503):
+            client = Mock()
+            client.models.generate_content.side_effect = APIError(code, {"error": {"message": "gemini-key private"}})
+            with self.subTest(code=code), patch.dict(os.environ, {
+                "LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "gemini-key",
+                "LLM_FALLBACK_PROVIDER": "baseten", "GLM_API_KEY": "baseten-secret"}, clear=True), \
+                    patch("roboforge.llm._gemini_client", return_value=client), \
+                    patch("roboforge.llm._generate_glm") as backup:
+                with self.assertRaises(LLMResponseError) as caught:
+                    generate_structured("Engineer", "Arm", PartProposal)
+                self.assertNotIn("gemini-key", str(caught.exception))
+                self.assertNotIn("private", str(caught.exception))
+                backup.assert_not_called()
+
+    def test_gemini_invalid_output_does_not_use_backup(self):
+        client = Mock()
+        client.models.generate_content.return_value = SimpleNamespace(parsed=None, text='{"private":"gemini-key"}')
+        with patch.dict(os.environ, {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "gemini-key",
+                                    "LLM_FALLBACK_PROVIDER": "baseten", "GLM_API_KEY": "backup-key"}), \
+                patch("roboforge.llm._gemini_client", return_value=client), \
+                patch("roboforge.llm._generate_glm") as backup:
+            with self.assertRaisesRegex(LLMResponseError, "invalid structured output"):
+                generate_structured("Engineer", "Arm", PartProposal)
+            backup.assert_not_called()
+
+    def test_gemini_quota_without_backup_is_safe(self):
+        from google.genai.errors import ClientError
+        client = Mock()
+        client.models.generate_content.side_effect = ClientError(429, {"error": {"message": "gemini-key private"}})
+        for fallback in ("", "baseten"):
+            with self.subTest(fallback=fallback), patch.dict(os.environ, {
+                "LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "gemini-key", "LLM_FALLBACK_PROVIDER": fallback
+            }, clear=True), patch("roboforge.llm._gemini_client", return_value=client), \
+                    patch("roboforge.llm._generate_glm") as backup:
+                with self.assertRaisesRegex(LLMResponseError, "quota or rate limit"):
+                    generate_structured("Engineer", "Arm", PartProposal)
+                backup.assert_not_called()
+
+    def test_invalid_backup_configuration_is_not_silently_used(self):
+        for settings in ({"LLM_FALLBACK_PROVIDER": "gemini"},
+                         {"LLM_FALLBACK_PROVIDER": "baseten", "LLM_FALLBACK_COOLDOWN_SECONDS": "zero"}):
+            with self.subTest(settings=settings), patch.dict(os.environ, {
+                "LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "gemini-key", **settings
+            }, clear=True), patch("roboforge.llm._gemini_client") as client:
+                with self.assertRaises(LLMUnavailable):
+                    generate_structured("Engineer", "Arm", PartProposal)
+                client.assert_not_called()
+
+    def test_backup_failure_is_not_reported_as_success(self):
+        from google.genai.errors import ClientError
+        client = Mock()
+        client.models.generate_content.side_effect = ClientError(429, {})
+        with patch.dict(os.environ, {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "gemini-key",
+                                    "LLM_FALLBACK_PROVIDER": "baseten", "GLM_API_KEY": "backup-key"}), \
+                patch("roboforge.llm._gemini_client", return_value=client), \
+                self.mock_transport(lambda request: httpx.Response(401, json={"error": "backup-key"})):
+            with self.assertRaisesRegex(LLMResponseError, "Baseten authentication failed") as caught:
+                generate_structured("Engineer", "Arm", PartProposal)
+            self.assertNotIn("backup-key", str(caught.exception))
 
     def test_baseten_defaults_and_provider_key_precedence(self):
         def handler(request):

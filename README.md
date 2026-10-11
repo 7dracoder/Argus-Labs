@@ -14,7 +14,7 @@ its key from the same file; Snowflake remains excluded.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-# Configure BASETEN_API_KEY or GLM_API_KEY in .env for Baseten-hosted GLM 5.3.
+# Configure GEMINI_API_KEY; retain BASETEN_API_KEY or GLM_API_KEY for quota backup.
 .venv/bin/uvicorn roboforge.main:app --reload
 # docs at http://127.0.0.1:8000/docs
 ```
@@ -26,7 +26,7 @@ roboforge/
   models.py      RobotProject: the single shared, versioned design model
   store.py       In-memory revision store (replace with Supabase later)
   catalog.py     Curated components + critical specs per substitution group
-  llm.py         GLM 5.3 structured output; configurable Gemini alternative
+  llm.py         Gemini structured output with optional GLM quota fallback
   agents.py      Architect (LLM), Mechanical (cadgen), Finance; other agents are stubs
   cad/           Part templates, dimension checks, CAD worker and export cache
   api.py         HTTP routes
@@ -65,17 +65,38 @@ user-priced generated component to the finance BOM.
 See [CAD setup and examples](docs/text-to-cad.md) for Windows commands, supported
 templates, editing, downloads, limitations, and tests.
 
-The project's `.env` selects Baseten-hosted GLM for Architect chat, voice and
-CAD interpretation. Set `BASETEN_API_KEY` (or the existing `GLM_API_KEY`),
+Architect chat, backend voice and CAD interpretation share the selected provider.
+To use Baseten-hosted GLM directly, set `BASETEN_API_KEY` (or the existing `GLM_API_KEY`),
 `LLM_PROVIDER=baseten`, `GLM_MODEL=zai-org/GLM-5.3` and
 `GLM_BASE_URL=https://inference.baseten.co/v1`. No Z.ai key is needed. Direct
 Z.ai remains available with `LLM_PROVIDER=glm` and its own key/model/endpoint.
 The client uses JSON
 mode and validates responses with the same Pydantic schemas used by the agents.
-Live calls require your key. Later, set `LLM_PROVIDER=gemini` and `GEMINI_API_KEY`
-to switch providers; `GEMINI_MODEL` remains configurable.
+Live calls require your key. The local configuration now uses `LLM_PROVIDER=gemini`,
+`GEMINI_API_KEY` and `GEMINI_MODEL=gemini-3.6-flash` as primary. Set
+`LLM_FALLBACK_PROVIDER=baseten` to keep the existing Baseten-hosted GLM as backup.
+Gemini HTTP 429 quota/rate-limit responses trigger the backup for the current
+request and a `LLM_FALLBACK_COOLDOWN_SECONDS=60` cooldown, after which Gemini is
+tried again. No environment variables are changed by failover. Authentication,
+access, transport and malformed-output errors do not trigger paid backup calls.
+Both providers must still return schema-valid output. Integration status reports
+the active provider and cooldown without credentials. A configured backup may
+use Baseten credits; this is not a guarantee of free usage on either provider.
+Keep Gemini's project on the free tier if you want to avoid Google charges:
+the app detects quota errors, not remaining free credits or billing status.
+Leave `LLM_FALLBACK_PROVIDER` empty to disable failover. Restart after editing `.env`.
 
 ## Website
+
+Reference research uses You.com Web Search when `RESEARCH_PROVIDER=you` and
+`YDC_API_KEY` is set in the ignored root `.env`. Retrieved titles, links and
+snippets ground the concept step; thumbnails are not treated as visual evidence.
+The adapter follows the [You.com Search API](https://you.com/docs/api-reference/search/v1-search)
+and sends credentials only in the backend's `X-API-Key` header.
+Search status is saved with the concept so a failed search is not a silent pass.
+To switch later, set `RESEARCH_PROVIDER=tavily` and `TAVILY_API_KEY`, then restart.
+Tavily also supplies described images. Web results are untrusted reference data,
+not instructions or verified engineering specifications.
 
 Open `http://127.0.0.1:8765` and describe a robot in plain words with a budget.
 `POST /projects/{id}/design/auto` (`roboforge/design.py`) picks the cheapest catalog
@@ -88,7 +109,7 @@ whole robot as a real B-rep model with text-to-cad's cadgen/build123d kernel:
 labelled, coloured parts exported to STEP and GLB, cached by layout hash. Catalog
 parts are representative models, not vendor CAD.
 
-## Minimal local frontend (older notes)
+## Local robotics design studio
 
 Run the backend, then open `http://127.0.0.1:8765`:
 
@@ -96,12 +117,38 @@ Run the backend, then open `http://127.0.0.1:8765`:
 .\.venv\Scripts\python.exe -m uvicorn roboforge.main:app --host 127.0.0.1 --port 8765
 ```
 
-The frontend is buildless HTML/CSS/JS served by FastAPI. **Run guided E2E demo**
+The frontend is buildless HTML/CSS/JS served by FastAPI. The robot-first studio
+uses vendored Three.js to display native CAD models, with eight selectable body
+plans, orbit/zoom, optional rotation and fullscreen. Nothing loads from a CDN.
+The design-review viewport adds front/side/top cameras, cover inspection and a
+reversible exploded-view slider. Explosion groups solids by CAD assembly node;
+it only moves the display, never modifies exported geometry or assembly steps.
+Motion defaults to off, respects reduced-motion settings and stops rendering
+when the viewport is offscreen. Styling is in `roboforge/web/studio.css`.
+
+**Next: how to assemble** opens the same revision's staged 3D build guide, print
+downloads, purchased parts and wiring table. Prototype fit/safety limitations
+remain visible. Projects reset on ordinary server restarts; keep the app local.
+For a planned development restart, preserve every revision before stopping the
+old server, then restore with a new, ignored recovery snapshot:
+
+```powershell
+.\.venv\Scripts\python.exe -m examples.preview --capture http://127.0.0.1:8765 --state artifacts/dev/recovery.json
+# Stop the old server before running the following command.
+.\.venv\Scripts\python.exe -m examples.preview --restore --state artifacts/dev/recovery.json --port 8765
+```
+
+Snapshots contain project data, not API configuration; protect them locally.
+This manual helper is not durable production storage and refuses to overwrite
+an existing snapshot. Choose a new snapshot name for each planned restart.
+
+**Run guided E2E demo** under Advanced
 creates a sample project, generates an arm-link CAD export with an $8 estimate,
 updates the BOM, writes two labelled development samples to Tiger, asks the
-Baseten-hosted Forge copilot for a spoken summary, and transcribes that generated
+configured Forge copilot for a spoken summary, and transcribes that generated
 speech with ElevenLabs. It uses small vendor credits. Downloads are real STEP,
-STL, GLB, and geometry reports; the inline preview is only a schematic.
+STL, GLB, and geometry reports. Catalog components are representative CAD, not
+manufacturer-certified models.
 
 Typed chat, custom projects, reviewed CAD templates, CAD proposals with explicit
 confirmation, and manual guided-pacing preview are available. Microphone input
@@ -151,6 +198,24 @@ Use `POST /projects/{id}/voice/agent` for GLM-powered, project-aware replies wit
 ElevenLabs speech. `POST /projects/{id}/voice/agent/audio?consent=true` accepts a
 short recording directly. `GET /voice/agent` describes Forge's profile.
 The earlier `/voice/architect` and `/voice/synthesize` endpoints still work.
+
+### Assembly and printable parts
+
+After building, choose **Next: how to assemble** for staged 3D steps, from/to
+wiring routes, wire gauges, connectors, estimated fuse ratings, tools and a
+buy/fabricate list. **3D-print parts** goes straight to the print list. Open-deck
+robots get dimensioned battery/computer covers; the tracked explorer gets a
+printable computer cover, while its battery stays in the purchased hull.
+Closed-body robots retain their purchased housing. **Inspect internals** hides
+covers for inspection; covers are visible by default.
+
+Each supported print has STL/STEP downloads, material, orientation, slicer
+settings and a 220 × 220 × 250 mm printer-envelope check. Large parts are explicitly
+not pre-split. Downloads and the offline JSON assembly plan are pinned to the
+guide's project revision. Purchased batteries, motors and housings are not STL
+printable merely because the preview includes them. Geometry checks are not
+strength, thermal, fit or electrical certification: verify datasheets and obtain
+qualified review before building or applying power.
 
 ### Tiger Data: simulation telemetry
 

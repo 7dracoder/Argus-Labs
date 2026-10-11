@@ -220,15 +220,15 @@ def get_assembly(project_id: str, revision: int | None = None):
 
 
 @router.get("/projects/{project_id}/assembly-guide")
-def get_assembly_guide(project_id: str):
-    """Build steps, wiring table and printable parts for the current revision."""
-    return assembly_guide(_get(project_id))
+def get_assembly_guide(project_id: str, revision: int | None = None):
+    """Build steps, wiring table and printable parts for a stable design revision."""
+    return assembly_guide(_get(project_id, revision))
 
 
 @router.get("/projects/{project_id}/prints/{index}/{format}")
-def download_print(project_id: str, index: int, format: Literal["stl", "step"]):
+def download_print(project_id: str, index: int, format: Literal["stl", "step"], revision: int | None = None):
     """Build (or reuse) one printable part from the guide and download it."""
-    project = _get(project_id)
+    project = _get(project_id, revision)
     spec = print_spec(project, index)
     if spec is None:
         raise HTTPException(404, "No printable part at this position.")
@@ -694,8 +694,8 @@ def setup_tiger():
 
 
 @router.get("/integrations/tiger/health")
-def tiger_health():
-    return tiger.health()
+def tiger_health(retry: bool = False):
+    return tiger.health(retry=retry)
 
 
 @router.get("/projects/{project_id}/telemetry/timeseries")

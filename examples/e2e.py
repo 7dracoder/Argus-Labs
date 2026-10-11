@@ -130,6 +130,34 @@ def main():
                 return {'exports': list(part['downloads']), 'revision': part['revision']}
             run('cad', cad)
 
+            def assembly_prints():
+                guide = checked(client.get(path + '/assembly-guide'))
+                revision = guide['revision']
+                assert guide['protection'] and guide['wiring']['rows'] and guide['buy']
+                keys = [s['key'] for s in guide['steps']]
+                assert keys.index('wiring') < keys.index('covers') < keys.index('test')
+                printable = [p for p in guide['prints'] if p['printable']]
+                covers = [p for p in printable if p['kind'] == 'cover']
+                assert len(covers) == 2
+                files = []
+                for cover in covers:
+                    for kind in ('stl', 'step'):
+                        response = client.get(path + f"/prints/{cover['index']}/{kind}",
+                                              params={'revision': revision}, timeout=180)
+                        response.raise_for_status()
+                        assert len(response.content) > 1000
+                        if kind == 'step':
+                            assert b'ISO-10303-21' in response.content
+                        else:
+                            import struct
+                            triangles = struct.unpack('<I', response.content[80:84])[0]
+                            assert len(response.content) == 84 + 50 * triangles and triangles > 0
+                        files.append(f"{cover['name']}.{kind}")
+                return {'revision': revision, 'steps': len(guide['steps']),
+                        'wiring_routes': len(guide['wiring']['rows']), 'cover_exports': files,
+                        'printable_types': len(printable), 'engineering_certified': False}
+            run('assembly_prints', assembly_prints)
+
             def adaptation():
                 assert client.post(path + '/adaptive-interface', json={
                     'consent': False, 'state': 'focused', 'confidence': 1}).status_code == 422
@@ -167,6 +195,56 @@ def main():
                 return {'text_to_agent_to_speech': 'passed', 'audio_to_agent_to_speech': 'passed',
                         'revision_unchanged': True}
             run('voice_agent_glm', voice)
+
+            def live_voice_session():
+                from urllib.parse import urlsplit
+                session = checked(client.post('/voice/live/session', json={'project_id': pid}))
+                signed = urlsplit(session.get('signed_url', ''))
+                assert signed.scheme == 'wss' and signed.hostname == 'api.elevenlabs.io'
+                assert session.get('robot_context') and session.get('agent_id')
+                # Do not save the signed credential or open a microphone/WebSocket conversation.
+                return {'signed_session': 'passed', 'project_context': 'passed',
+                        'microphone_opened': False, 'conversation_audio_tested': False}
+            run('elevenlabs_live_session', live_voice_session)
+
+            def researched_design():
+                designed = checked(client.post('/projects', json={
+                    'name': 'You.com researched E2E carrier',
+                    'requirements': {'description': 'An indoor wheeled robot that carries 2 kg parcels between office rooms.',
+                                     'budget_usd': 2500, 'payload_kg': 2, 'runtime_hours': 2}}))
+                design_path = '/projects/' + designed['id']
+                result = checked(client.post(design_path + '/design/auto', json={}))
+                built = result['project']
+                arch = built['architecture']
+                research = arch.get('research') or {}
+                if research.get('status') != 'ok' or not research.get('references'):
+                    raise E2EFailure('No successful live reference search stored with the AI concept')
+                if not arch.get('concept'):
+                    raise E2EFailure('AI concept fell back to a deterministic design')
+                assert built['components']
+                assembly = checked(client.get(design_path + '/assembly'))
+                assert assembly['nodes']
+                guide = checked(client.get(design_path + '/assembly-guide'))
+                assert guide
+                report = checked(client.get(design_path + '/robot/report', timeout=300))
+                assert report['parts'] > 0 and all(d > 0 for d in report['bounds_mm'])
+                for kind in ('glb', 'step'):
+                    export = client.get(design_path + '/robot/' + kind)
+                    export.raise_for_status()
+                    if kind == 'glb':
+                        assert export.content[:4] == b'glTF'
+                    else:
+                        assert b'ISO-10303-21' in export.content
+                # A budget-only update must keep the concept/research, not trigger another search/model call.
+                req = {**built['requirements'], 'budget_usd': 2200}
+                rerun = checked(client.post(design_path + '/design/auto', json={'requirements': req}))['project']
+                assert rerun['architecture']['concept'] == arch['concept']
+                assert rerun['architecture']['research'] == research
+                return {'provider': research['provider'], 'references': len(research['references']),
+                        'ai_concept': 'passed', 'assembly_nodes': len(assembly['nodes']),
+                        'whole_robot_exports': ['glb', 'step', 'report'], 'budget_reuse': 'passed',
+                        'project_id': built['id'], 'engineering_certified': False}
+            run('researched_robot_design', researched_design)
 
             if camera:
                 try:

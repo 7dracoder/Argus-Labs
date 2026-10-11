@@ -286,8 +286,14 @@ class _Layout:
         self.add("frame", frame, "box", [length, body_h, width], [0, bottom + body_h / 2, 0])
         if not (plate and arch.key != "tracked_explorer" and self.custom(
                 "chassis_plate", [0, top + plate["spec"]["thickness_mm"] / 2000, 0])):
+            deck_spec = None
+            if arch.key not in ("delivery_rover", "tracked_explorer"):
+                deck_spec = PartSpec(kind="chassis_plate", name="Deck plate",
+                                     length_mm=round((length - 0.01) * 1000, 1),
+                                     width_mm=round((width - 0.01) * 1000, 1), thickness_mm=6,
+                                     hole_diameter_mm=4.4, hole_inset_mm=12, material="petg").model_dump()
             self.add("deck", None, "box", [length - 0.01, 0.006, width - 0.01], [0, top + 0.003, 0],
-                     label="Deck plate", component_id=frame.id if frame else None)
+                     label="Deck plate", component_id=frame.id if frame else None, spec=deck_spec)
         top += plate["spec"]["thickness_mm"] / 1000 if plate and arch.key != "tracked_explorer" else 0.006
 
         if arch.key == "delivery_rover":
@@ -313,8 +319,10 @@ class _Layout:
         elif arch.key == "tracked_explorer":
             self.hidden("battery", "battery", [-length * 0.1, bottom + body_h / 2, 0], (0.17, 0.08, 0.1))
             compute = self.first("compute")
-            self.add("enclosure", compute, "box", [length * 0.38, 0.09, width * 0.6], [-length * 0.12, top + 0.045, 0],
-                     label=f"{compute.name} (sealed enclosure)" if compute else "Electronics enclosure")
+            if compute:
+                size = COMPUTE_SIZES.get(compute.catalog_id, [0.10, 0.03, 0.079])
+                self.add("compute", compute, "box", size, [-length * 0.12, top + size[1] / 2, 0])
+                self.cover("compute", "Computer cover")
             self.mic_at([-length * 0.2, top + 0.09, width * 0.15])
             pan = self.first("pan_tilt")
             dof = self.qty("arm_servo")

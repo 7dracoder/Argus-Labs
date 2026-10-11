@@ -1,6 +1,6 @@
-import {Viewer, webglAvailable} from './viewer.js?v=4';
+import {Viewer, webglAvailable} from './viewer.js?v=7';
 import {LiveVoice} from './live.js?v=4';
-import {Showcase} from './showcase.js?v=4';
+import {Showcase} from './showcase.js?v=5';
 import {Blueprint} from './blueprint.js?v=4';
 
 const $ = id => document.getElementById(id);
@@ -22,9 +22,9 @@ const PRESETS = {
 const KIND_NAMES = {arm_link: 'Arm link', chassis_plate: 'Deck plate', motor_bracket: 'Motor bracket'};
 
 // ---------- plumbing ----------
-async function api(path, body, raw = false, method) {
+async function api(path, body, raw = false, method, timeoutMs = 190000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 190000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(path, {method: method || (body === undefined ? 'GET' : 'POST'),
       headers: body === undefined ? {} : {'Content-Type': raw ? (body.type || 'audio/webm') : 'application/json'},
@@ -73,6 +73,7 @@ function show(screen) {
   const changed = $(screen).hidden;
   for (const id of ['start', 'workspace', 'assemble']) $(id).hidden = screen !== id;
   $('new-robot').hidden = screen === 'start';
+  $('explore-robots').hidden = screen !== 'start';
   if (screen === 'workspace') state.viewer?.resize();
   if (screen === 'assemble') state.asmViewer?.resize();
   if (changed) window.scrollTo({top: 0});
@@ -86,15 +87,24 @@ async function projectList() {
   $('project-select').value = '';
 }
 async function refresh() {
-  const [project, bom, budget, assembly, telemetry] = await Promise.all([
+  const [project, bom, budget, assembly] = await Promise.all([
     api(projectPath()), api(projectPath('/finance/bom')), api(projectPath('/finance/budget')),
-    api(projectPath('/assembly')), api(projectPath('/telemetry/summary')).catch(() => null)]);
+    api(projectPath('/assembly'))]);
   Object.assign(state, {project, bom, assembly});
   $('project-title').textContent = project.name;
   $('robot-type').textContent = assembly.robot_type.replaceAll('_', ' ');
   $('revision').textContent = `Revision ${project.revision}`;
   renderBudget(budget); renderParts(bom); renderFacts(assembly, bom); renderBrief(project);
-  renderDownloads(); renderTelemetry(telemetry);
+  renderDownloads(); renderTelemetry(null);
+  // Optional telemetry must never hold up design, CAD or assembly when Tiger is offline.
+  const telemetryProject = project.id;
+  api(projectPath('/telemetry/summary'), undefined, false, 'GET', 10000).then(result => {
+    if (state.project?.id === telemetryProject) renderTelemetry(result);
+  }).catch(error => { if (state.project?.id === telemetryProject) renderTelemetry(null, error.message); });
+  const guide = await api(projectPath(`/assembly-guide?revision=${project.revision}`));
+  state.buildGuide = guide;
+  $('protection-summary').textContent = guide.protection.join(' ');
+  $('print-option').textContent = `3D-print parts (${guide.prints.filter(p => p.printable).reduce((n, p) => n + p.quantity, 0)}) →`;
   await renderStage();
   show('workspace');
   await projectList();
@@ -247,6 +257,8 @@ async function renderStage(force = false) {
   state.stageKey = key;
   const viewer = ensureViewer();
   if (!viewer) { $('stage').replaceChildren(node('p', '3D needs WebGL, which this browser has turned off. The parts list and downloads still work.', 'placeholder')); return; }
+  resetViewerControls('robot');
+  $('explode').disabled = state.view !== 'robot';
   try {
     if (state.view === 'robot') {
       $('geometry-state').textContent = 'Building CAD model…';
@@ -259,6 +271,7 @@ async function renderStage(force = false) {
         await viewer.showAssembly(state.assembly);
         $('geometry-state').textContent = 'Simplified preview';
       }
+      viewer.inspectInternals($('inspect-internals').checked, state.assembly);
       if (state.selected) select(state.selected, true);
       else $('selection').textContent = 'Click any part in the 3D view or the list to see what it is.';
     } else {
@@ -492,7 +505,7 @@ function downloadCSV() {
 // ---------- assembly guide ----------
 function partName(componentId) { return state.bom?.lines.find(l => l.component_id === componentId)?.name; }
 async function openAssemble() {
-  const data = await api(projectPath('/assembly-guide'));
+  const data = await api(projectPath(`/assembly-guide?revision=${state.project.revision}`));
   state.guide = {data, index: 0};
   renderGuide(data);
   show('assemble');
@@ -515,6 +528,7 @@ async function renderAsmStage() {
     const shown = await state.asmViewer.showRobot(projectPath(`/robot/glb?revision=${state.project.revision}`), `Assembly of ${state.assembly.robot_type}`);
     if (shown === false) return;
   } catch { await state.asmViewer.showAssembly(state.assembly); }
+  resetViewerControls('assembly');
   state.asmKey = key;
 }
 function goStep(index) {
@@ -526,6 +540,10 @@ function goStep(index) {
   steps.forEach((s, i) => { if (i <= index && s.key !== 'print') s.nodes.forEach(n => shown.add(n)); });
   state.asmViewer?.stage(shown, current);
   $('asm-count').textContent = `Step ${index + 1} of ${steps.length} · ${steps[index].title}`;
+  const detail = $('asm-detail-link'), key = steps[index].key;
+  detail.hidden = !['wiring', 'print'].includes(key);
+  detail.href = key === 'wiring' ? '#wiring-title' : '#prints-title';
+  detail.textContent = key === 'wiring' ? 'View wiring table →' : 'View printable files →';
   $('asm-prev').disabled = index === 0;
   $('asm-next').disabled = index === steps.length - 1;
   $('asm-next').textContent = index === steps.length - 1 ? 'All done ✓' : 'Next step →';
@@ -542,6 +560,9 @@ function goStep(index) {
 function renderGuide(g) {
   $('asm-type').textContent = `${g.robot_type.replaceAll('_', ' ')} · assembly guide`;
   $('asm-title').textContent = `How to build ${state.project.name}`;
+  $('asm-notes').replaceChildren(...g.notes.map(t => node('li', t)));
+  $('asm-protection').replaceChildren(...g.protection.map(t => node('li', t)));
+  $('asm-buy').replaceChildren(...g.buy.map(p => node('li', `${p.quantity} × ${p.name}`)));
   $('asm-step-count').textContent = `${g.steps.length} steps`;
   $('asm-steps').replaceChildren(...g.steps.map((s, i) => {
     const li = node('li');
@@ -560,7 +581,7 @@ function renderGuide(g) {
     if (p.printable) {
       text.append(node('small', `${p.size_mm.join(' × ')} mm · ${p.material} · ≈${p.grams_each} g · ≈${p.hours_each} h each`),
         node('small', `${p.orientation} ${p.settings}.`, 'muted'));
-      if (!p.fits_bed) text.append(node('small', p.note, 'warn'));
+      text.append(node('small', p.note, p.fits_bed ? 'muted' : 'warn'));
     } else text.append(node('small', p.note, 'muted'));
     li.append(text);
     if (p.printable) {
@@ -597,7 +618,8 @@ async function downloadPrint(item, format, button) {
   button.disabled = true; button.textContent = 'Preparing…';
   announce(`Generating ${item.name} and checking its geometry…`, false, true);
   try {
-    const response = await fetch(projectPath(`/prints/${item.index}/${format}`), {cache: 'no-store'});
+    const guide = state.guide.data;
+    const response = await fetch(`/projects/${encodeURIComponent(guide.project_id)}/prints/${item.index}/${format}?revision=${guide.revision}`, {cache: 'no-store'});
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       throw new Error(typeof payload.detail === 'string' ? payload.detail : 'The file could not be generated.');
@@ -611,8 +633,8 @@ async function downloadPrint(item, format, button) {
 }
 
 // ---------- telemetry ----------
-function renderTelemetry(result) {
-  $('telemetry-result').textContent = !result ? 'Telemetry unavailable; check the Tiger connection.' : !result.metrics.length
+function renderTelemetry(result, error) {
+  $('telemetry-result').textContent = !result ? error || 'Loading telemetry…' : !result.metrics.length
     ? `No measurements yet · ${result.storage} storage.` : result.metrics.map(metric =>
       `${metric.metric}: average ${metric.average} ${metric.unit} · ${metric.samples} samples · ${result.storage} storage`).join(' | ');
 }
@@ -666,11 +688,30 @@ async function runDemo() {
   } catch (error) { step(current, 'failed'); throw error; }
 }
 async function integrations() {
-  const [status, health] = await Promise.all([api('/integrations/status'), api('/integrations/tiger/health')]);
+  const status = await api('/integrations/status');
   $('llm-status').textContent = `AI · ${status.llm.provider} ${status.llm.configured ? status.llm.model : 'key missing'}`;
   $('voice-status').textContent = `ElevenLabs · ${status.elevenlabs.configured ? 'configured' : 'not configured'}`;
-  $('tiger-status').textContent = `Tiger · ${health.connected && health.schema_ready ? 'connected' : 'not ready'}`;
   $('presage-status').textContent = `Presage · ${status.presage.key_configured ? 'key configured' : 'key missing'} · camera off`;
+  await checkTiger(false);
+}
+
+async function checkTiger(retry = true) {
+  $('retry-tiger').disabled = true;
+  $('tiger-status').textContent = 'Tiger · checking…';
+  $('tiger-detail').textContent = 'Checking encrypted database access…';
+  try {
+    const health = await api(`/integrations/tiger/health${retry ? '?retry=true' : ''}`, undefined, false, 'GET', 20000);
+    $('tiger-status').textContent = `Tiger · ${health.connected ? health.schema_ready ? 'connected' : 'schema missing' : health.configured ? 'connection failed' : 'not configured'}`;
+    $('tiger-detail').textContent = health.error || (health.connected && health.schema_ready
+      ? 'Connected to Tiger. Telemetry table and minute rollup are ready. No real robot measurements are collected automatically.'
+      : health.action || 'Initialize the telemetry schema.');
+    $('setup-tiger').hidden = !health.connected || health.schema_ready;
+    if (health.connected && health.schema_ready && state.project) renderTelemetry(await api(projectPath('/telemetry/summary')));
+    return health;
+  } catch (error) {
+    $('tiger-status').textContent = 'Tiger · check failed';
+    $('tiger-detail').textContent = error.name === 'AbortError' ? 'Database health check timed out. Check network access, then retry.' : error.message;
+  } finally { $('retry-tiger').disabled = false; }
 }
 
 // ---------- events ----------
@@ -846,6 +887,61 @@ $('cad-form').addEventListener('submit', event => { event.preventDefault(); acti
 }); });
 $('csv').addEventListener('click', downloadCSV);
 $('to-assemble').addEventListener('click', () => action(openAssemble, 'Preparing the assembly guide…'));
+$('print-option').addEventListener('click', () => action(async () => {
+  await openAssemble(); $('asm-prints').scrollIntoView({behavior: 'smooth', block: 'start'});
+}, 'Preparing printable parts…'));
+$('inspect-internals').addEventListener('change', () => {
+  if (state.view === 'robot') state.viewer?.inspectInternals($('inspect-internals').checked, state.assembly);
+});
+// Viewport-only transforms never edit engineering data or trigger model APIs.
+function resetViewerControls(kind) {
+  const tools = document.querySelector(`[data-viewer="${kind}"]`);
+  tools.querySelectorAll('[data-angle]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.angle === 'default')));
+  tools.querySelector('[data-spin]')?.setAttribute('aria-pressed', 'false');
+  if (kind === 'robot') { $('explode').value = '0'; $('explode-value').textContent = '0%'; }
+}
+document.querySelectorAll('[data-viewer]').forEach(tools => {
+  tools.addEventListener('click', event => {
+    const button = event.target.closest('button'); if (!button) return;
+    const kind = tools.dataset.viewer, viewer = kind === 'robot' ? state.viewer : state.asmViewer;
+    if (!viewer) return;
+    if (button.dataset.angle) {
+      viewer.setAngle(button.dataset.angle);
+      tools.querySelectorAll('[data-angle]').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
+    }
+    if (button.hasAttribute('data-spin')) {
+      const enabled = viewer.setSpin(button.getAttribute('aria-pressed') !== 'true');
+      button.setAttribute('aria-pressed', String(enabled));
+    }
+    if (button.hasAttribute('data-reset')) { viewer.resetView(); resetViewerControls(kind); }
+  });
+});
+$('explode').addEventListener('input', () => {
+  if (state.view !== 'robot') return;
+  state.viewer?.setExploded(Number($('explode').value) / 100);
+  $('explode-value').textContent = `${$('explode').value}%`;
+});
+document.querySelectorAll('[data-fullscreen]').forEach(button => {
+  button.addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await $(button.dataset.fullscreen).requestFullscreen();
+    } catch { announce('Fullscreen is unavailable in this browser. The 3D controls still work.', true); }
+  });
+});
+document.addEventListener('fullscreenchange', () => {
+  document.querySelectorAll('[data-fullscreen]').forEach(button => {
+    const expanded = document.fullscreenElement?.id === button.dataset.fullscreen;
+    button.setAttribute('aria-label', expanded ? 'Exit expanded viewport' : 'Expand viewport');
+    button.setAttribute('aria-pressed', String(expanded));
+  });
+});
+$('save-guide').addEventListener('click', () => {
+  const guide = state.guide?.data; if (!guide) return;
+  const url = URL.createObjectURL(new Blob([JSON.stringify(guide, null, 2)], {type: 'application/json'}));
+  const a = node('a'); a.href = url; a.download = `assembly_rev${guide.revision}.json`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
 $('back-to-design').addEventListener('click', () => show('workspace'));
 $('asm-prev').addEventListener('click', () => goStep(state.guide.index - 1));
 $('asm-next').addEventListener('click', () => goStep(state.guide.index + 1));
@@ -862,6 +958,13 @@ $('next-upgrade-btn').addEventListener('click', () => {
   $('budget-slider').value = String(value); queueBudget(value);
 });
 $('seed-telemetry').addEventListener('click', () => action(async () => { await seedTelemetry(); announce('Two labelled samples written to Tiger. Minute rollup verified.'); }, 'Writing test samples…'));
+$('retry-tiger').addEventListener('click', () => checkTiger());
+$('setup-tiger').addEventListener('click', async () => {
+  $('setup-tiger').disabled = true;
+  try { await api('/integrations/tiger/setup'); await checkTiger(); }
+  catch (error) { announce(error.message, true); }
+  finally { $('setup-tiger').disabled = false; }
+});
 $('demo').addEventListener('click', () => action(runDemo));
 $('guided').addEventListener('change', () => action(async () => {
   const guided = $('guided').checked;
@@ -884,7 +987,11 @@ async function initShowcase() {
     b.append(node('span', item.label), bar); li.append(b); return li;
   });
   $('sc-dots').replaceChildren(...dots);
-  if (!webglAvailable()) { $('showcase-stage').replaceChildren(node('p', 'Turn on WebGL to see the robots in 3D.', 'sc-loading')); return; }
+  if (!webglAvailable()) {
+    $('showcase-stage').classList.add('failed');
+    $('showcase-stage').replaceChildren(node('p', 'Turn on WebGL to see the robots in 3D. You can still design a robot below.', 'sc-loading'));
+    return;
+  }
   let current = null;
   const reel = new Showcase($('showcase-stage'), items, {
     onChange: (index, item) => {
@@ -898,20 +1005,34 @@ async function initShowcase() {
         ['Moves', moves]].map(([k, v]) => { const d = node('div'); d.append(node('dt', k), node('dd', String(v))); return d; }));
       $('sc-count').replaceChildren(node('b', pad(index + 1)), ` / ${pad(items.length)}`);
       $('sc-use').hidden = false;
-      dots.forEach((li, i) => { li.className = i === index ? 'active' : i < index ? 'done' : ''; li.querySelector('i b').style.transform = i < index ? '' : 'scaleX(0)'; });
+      dots.forEach((li, i) => {
+        li.className = i === index ? 'active' : '';
+        li.querySelector('button').setAttribute('aria-pressed', String(i === index));
+      });
     },
     onProgress: (index, p) => { dots[index].querySelector('i b').style.transform = `scaleX(${p})`; },
   });
   dots.forEach((li, i) => li.querySelector('button').addEventListener('click', () => reel.jump(i)));
+  $('sc-spin').addEventListener('click', () => {
+    const enabled = reel.setSpin($('sc-spin').getAttribute('aria-pressed') !== 'true');
+    $('sc-spin').setAttribute('aria-pressed', String(enabled));
+  });
+  $('sc-reset').addEventListener('click', () => {
+    reel.resetView(); reel.setSpin(false); $('sc-spin').setAttribute('aria-pressed', 'false');
+  });
   $('sc-use').addEventListener('click', () => {
     if (!current) return;
     $('brief').value = current.brief; $('budget').value = current.budget_usd; $('brief').focus();
   });
-  reel.go(0);
+  reel.go(Math.max(0, items.findIndex(item => item.label === 'Mobile manipulator')));
 }
 
 applyPreset();
-initShowcase().catch(() => { $('showcase').hidden = true; });
+initShowcase().catch(() => {
+  $('showcase-stage').classList.add('failed');
+  $('showcase-stage').replaceChildren(node('p', 'Robot collection unavailable. You can still describe and build a robot.', 'sc-loading'));
+});
 lock(true);
-Promise.all([integrations(), projectList()]).then(() => announce('Ready. Describe your robot to begin.'))
+integrations().catch(() => { $('tiger-status').textContent = 'Tiger · unreachable'; });
+projectList().then(() => announce('Ready. Describe your robot to begin.'))
   .catch(error => announce(error.message || 'Backend unavailable.', true)).finally(() => lock(false));

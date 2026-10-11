@@ -29,6 +29,11 @@ class TigerTests(unittest.TestCase):
     def setUp(self):
         with patch.dict(os.environ, {}, clear=True):
             self.database = TigerTelemetry()
+        if psycopg:
+            self.resolver = patch("psycopg.conninfo.conninfo_attempts", side_effect=lambda settings: [
+                {**settings, "hostaddr": "203.0.113.10"}])
+            self.resolver.start()
+            self.addCleanup(self.resolver.stop)
 
     def test_memory_is_not_reported_as_connected_and_groups_are_isolated(self):
         self.assertFalse(self.database.health()["connected"])
@@ -71,7 +76,70 @@ class TigerTests(unittest.TestCase):
                 self.database.initialize()
             self.assertNotIn("secret", str(caught.exception))
             self.assertEqual(connect.call_args.kwargs["sslmode"], "require")
-            self.assertEqual(connect.call_args.kwargs["connect_timeout"], 10)
+            self.assertEqual(connect.call_args.kwargs["connect_timeout"], 2)
+            self.assertEqual(connect.call_args.kwargs["host"], "db.example.com")
+
+    @unittest.skipUnless(psycopg, "Optional Tiger driver is not installed")
+    def test_multi_address_budget_backoff_and_explicit_retry(self):
+        self.database.database_url = "postgresql://user:secret@db.example.com/db"
+        clock = [1000.0]
+        attempts = [{"host": "db.example.com", "hostaddr": f"203.0.113.{n}",
+                     "sslmode": "require"} for n in range(10, 16)]
+        def failed_connection(**settings):
+            clock[0] += 2
+            raise psycopg.errors.ConnectionTimeout("password=secret timeout expired")
+        with patch("psycopg.conninfo.conninfo_attempts", return_value=attempts), \
+             patch("roboforge.integrations.tiger.monotonic", side_effect=lambda: clock[0]), \
+             patch("psycopg.connect", side_effect=failed_connection) as connect:
+            status = self.database.health()
+            self.assertEqual(status["error_code"], "connection_timeout")
+            self.assertEqual(connect.call_count, 4)
+            self.assertEqual(clock[0], 1008)
+            self.assertNotIn("secret", json.dumps(status))
+            self.assertNotIn("db.example.com", json.dumps(status))
+            self.assertGreater(status["retry_after_seconds"], 0)
+            self.database.health()
+            self.assertEqual(connect.call_count, 4, "backoff prevents repeated connection storms")
+            self.database.health(retry=True)
+            self.assertEqual(connect.call_count, 8)
+            self.assertNotEqual(connect.call_args_list[0].kwargs["hostaddr"], connect.call_args_list[4].kwargs["hostaddr"])
+            self.assertTrue(all(c.kwargs["sslmode"] == "require" for c in connect.call_args_list))
+
+    @unittest.skipUnless(psycopg, "Optional Tiger driver is not installed")
+    def test_authentication_and_schema_failures_are_distinguished_without_fallback(self):
+        self.database.database_url = "postgresql://user:secret@db.example.com/db"
+        with patch("psycopg.connect", side_effect=psycopg.errors.InvalidPassword("secret")) as connect:
+            status = self.database.health()
+            self.assertEqual(status["error_code"], "authentication_failed")
+            self.assertFalse(status["connected"])
+            self.assertNotIn("secret", json.dumps(status))
+            connect.assert_called_once()
+            with self.assertRaises(TigerUnavailable):
+                self.database.record("test", TelemetryEvent(metric="x", value=1))
+            self.assertEqual(self.database._events, {}, "configured failures never become fake memory writes")
+        self.database._retry_at = 0
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.execute.side_effect = psycopg.errors.UndefinedTable("private details")
+        with patch("psycopg.connect", return_value=connection):
+            with self.assertRaises(TigerUnavailable) as caught:
+                self.database.summary("test")
+            self.assertEqual(caught.exception.code, "schema_missing")
+            self.assertNotIn("private details", str(caught.exception))
+
+    @unittest.skipUnless(psycopg, "Optional Tiger driver is not installed")
+    def test_health_reports_schema_action_after_successful_connection(self):
+        self.database.database_url = "postgresql://user:secret@db.example.com/db"
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.side_effect = [("2.30.2",), (None, None)]
+        with patch("psycopg.connect", return_value=connection):
+            health = self.database.health()
+        self.assertTrue(health["connected"])
+        self.assertFalse(health["schema_ready"])
+        self.assertIn("Initialize", health["action"])
 
     @unittest.skipUnless(psycopg, "Optional Tiger driver is not installed")
     def test_setup_is_idempotent_and_schedules_real_time_rollups(self):

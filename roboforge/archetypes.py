@@ -107,6 +107,8 @@ def open_deck_modules(arch: Archetype) -> list[str]:
     """Modules this body plan mounts on top of an open deck, so they need a printed cover."""
     if arch.base == "rect" and arch.key not in ("delivery_rover", "tracked_explorer"):
         return ["battery", "computer"]
+    if arch.key == "tracked_explorer":
+        return ["computer"]
     return ["computer"] if arch.base == "plate" else []
 
 

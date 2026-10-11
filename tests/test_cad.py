@@ -123,6 +123,13 @@ class CADIntegration(unittest.TestCase):
             stl = client.get(f"/projects/{project['id']}/prints/{cover['index']}/stl")
             self.assertEqual(stl.status_code, 200, stl.text)
             self.assertGreater(len(stl.content), 1000)
+            battery = next(c for c in project['components'] if c['kind'] == 'battery')
+            client.delete(f"/projects/{project['id']}/components/{battery['id']}").raise_for_status()
+            pinned = client.get(f"/projects/{project['id']}/prints/{cover['index']}/stl?revision=1")
+            self.assertEqual(pinned.status_code, 200)
+            self.assertEqual(pinned.content, stl.content)
+            old = client.get(f"/projects/{project['id']}/assembly-guide?revision=1").json()
+            self.assertEqual(old['prints'], prints)
             missing = client.get(f"/projects/{project['id']}/prints/99/stl")
             self.assertEqual(missing.status_code, 404)
 

@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import os
+import math
 from collections import defaultdict
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from threading import Lock
+from time import monotonic
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -31,7 +33,31 @@ class TelemetryEvent(BaseModel):
 
 
 class TigerUnavailable(RuntimeError):
-    pass
+    def __init__(self, message: str, code: str = "unavailable", retry_after: int = 0):
+        super().__init__(message)
+        self.code = code
+        self.retry_after = retry_after
+
+
+def _database_error(error) -> TigerUnavailable:
+    """Classify errors without ever returning driver text/credentials."""
+    state = getattr(error, "sqlstate", None)
+    text = str(error).lower()
+    if state in {"28P01", "28000"} or "password authentication failed" in text:
+        return TigerUnavailable("Tiger rejected authentication. Check TIGER_DATABASE_URL in .env and restart the backend.", "authentication_failed")
+    if state == "42501":
+        return TigerUnavailable("The Tiger database role lacks permission for this operation.", "permission_denied")
+    if state in {"42P01", "42883"}:
+        return TigerUnavailable("Tiger telemetry schema is missing. Run Tiger schema setup.", "schema_missing")
+    if state == "57014":
+        return TigerUnavailable("The Tiger query exceeded its statement time limit.", "query_timeout")
+    if "timeout" in text or "timed out" in text:
+        return TigerUnavailable("Tiger connection timed out before a database session was established. Check service readiness and PostgreSQL network access.", "connection_timeout")
+    if "resolve" in text or "name or service" in text or "getaddrinfo" in text:
+        return TigerUnavailable("The Tiger hostname could not be resolved. Check the connection URL and DNS/network access.", "dns_failed")
+    if "certificate" in text or "ssl" in text or "tls" in text:
+        return TigerUnavailable("Tiger TLS negotiation failed. Keep SSL enabled and verify the endpoint and certificate settings.", "tls_failed")
+    return TigerUnavailable("Tiger database operation failed. Check connection credentials, network access, and run setup.", "connection_failed")
 
 
 class TigerTelemetry:
@@ -41,13 +67,56 @@ class TigerTelemetry:
         self.database_url = os.environ.get("TIGER_DATABASE_URL")
         self._events: dict[str, list[TelemetryEvent]] = defaultdict(list)
         self._lock = Lock()
+        self._connect_lock = Lock()
+        self._address_offset = 0
+        self._retry_at = 0.0
+        self._last_connect_error: TigerUnavailable | None = None
+
+    def _open_connection(self, settings, psycopg, *, retry=False):
+        # psycopg's connect_timeout applies to EACH resolved address. Tiger's
+        # endpoint currently has six, which turned a "10s" check into ~60s.
+        # Resolve once, preserve host for TLS/SNI, and give all attempts a shared
+        # budget. Rotate the first candidate on the next check for failover.
+        from psycopg.conninfo import conninfo_attempts
+        with self._connect_lock:
+            if not retry and self._last_connect_error and monotonic() < self._retry_at:
+                error = self._last_connect_error
+                raise TigerUnavailable(str(error), error.code, math.ceil(self._retry_at - monotonic()))
+            try:
+                attempts = conninfo_attempts(settings)
+                offset = self._address_offset % len(attempts)
+                self._address_offset += 1
+                attempts = attempts[offset:] + attempts[:offset]
+                deadline = monotonic() + 8
+                last_error = psycopg.errors.ConnectionTimeout("connection timeout expired")
+                for attempt in attempts:
+                    # libpq enforces a minimum 2-second timeout. Don't start an
+                    # attempt when there is less than that remaining.
+                    if deadline - monotonic() < 2:
+                        break
+                    try:
+                        connection = psycopg.connect(**{**attempt, "connect_timeout": 2})
+                    except psycopg.OperationalError as error:
+                        if getattr(error, "sqlstate", None):
+                            raise
+                        last_error = error
+                    else:
+                        self._last_connect_error = None
+                        self._retry_at = 0
+                        return connection
+                raise last_error
+            except psycopg.Error as error:
+                safe = _database_error(error)
+                self._last_connect_error = safe
+                self._retry_at = monotonic() + 15
+                raise TigerUnavailable(str(safe), safe.code, 15) from None
 
     @property
     def mode(self) -> str:
         return "tiger" if self.database_url else "memory"
 
     @contextmanager
-    def _connect(self):
+    def _connect(self, *, retry=False):
         if not self.database_url:
             raise TigerUnavailable("Set TIGER_DATABASE_URL to connect to Tiger Data.")
         try:
@@ -65,31 +134,35 @@ class TigerTelemetry:
                 if settings.get("sslmode", "require") not in {"require", "verify-ca", "verify-full"}:
                     raise TigerUnavailable("Remote Tiger connections require sslmode=require or certificate verification.")
                 settings.setdefault("sslmode", "require")
-            settings.update(connect_timeout=10, application_name="roboforge")
-            with psycopg.connect(**settings) as connection:
+            settings.update(application_name="roboforge")
+            with self._open_connection(settings, psycopg, retry=retry) as connection:
                 with connection.cursor() as cursor:
                     cursor.execute("SET statement_timeout = '15s'")
                 yield connection
-        except (psycopg.Error, ValueError):
+        except (psycopg.Error, ValueError) as error:
             # Driver messages can contain hosts, users, and database credentials.
-            raise TigerUnavailable("Tiger database operation failed. Check connection credentials, network access, and run setup.") from None
+            raise _database_error(error) from None
 
-    def health(self) -> dict:
+    def health(self, *, retry=False) -> dict:
         if not self.database_url:
             return {"configured": False, "connected": False, "schema_ready": False,
                     "mode": "memory", "action": "Set TIGER_DATABASE_URL in .env and run Tiger setup."}
         try:
-            with self._connect() as connection, connection.cursor() as cursor:
+            with self._connect(retry=retry) as connection, connection.cursor() as cursor:
                 cursor.execute("SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'")
                 extension = cursor.fetchone()
                 cursor.execute("SELECT to_regclass('public.roboforge_telemetry'), to_regclass('public.roboforge_telemetry_1m')")
                 tables = cursor.fetchone()
+            ready = bool(extension and tables and all(tables))
             return {"configured": True, "connected": True, "mode": "tiger",
                     "timescaledb_version": extension[0] if extension else None,
-                    "schema_ready": bool(extension and tables and all(tables))}
+                    "schema_ready": ready,
+                    "action": None if ready else "Initialize the Tiger telemetry schema."}
         except TigerUnavailable as error:
             return {"configured": True, "connected": False, "schema_ready": False,
-                    "mode": "tiger", "error": str(error)}
+                    "mode": "tiger", "error": str(error), "error_code": error.code,
+                    "retry_after_seconds": error.retry_after,
+                    "action": "Check the Tiger service and network access, then retry. Do not disable SSL."}
 
     def initialize(self) -> None:
         """Create the time-series table and its Tiger hypertable once."""

@@ -2,9 +2,9 @@
 
 Electrical sizing comes from catalog power ratings: current = power / voltage, motors
 sized for 2x their rated current while accelerating. Fuses are the next standard size
-above 1.25x the expected current and every wire is rated for at least its fuse, so a
-fault blows the fuse before the wire overheats. These are screening values; check
-them against each part's datasheet before wiring.
+above 1.25x the expected current and candidate wire ampacity is at least its fuse.
+These are screening values, not a validated protection-coordination calculation;
+stall currents, insulation, bundling and fuse time-current curves must be reviewed.
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ MOTOR_V = {"hub-motor-250w": 24.0}  # every other drive motor in the catalog is 
 SERVO_V = {"dynamixel-xm430": (12, 14.8), "dynamixel-xm540": (12, 14.8),
            "feetech-sts3250": (12, 12.6), "feetech-sts3215": (7.4, 8.4)}  # (nominal, max)
 TOOLS = ["Metric hex keys 1.5-5 mm and Phillips #1/#2 drivers",
-         "Wire stripper, ratcheting crimper for XT and JST contacts, ferrules",
+         "Wire stripper, matching crimp tools for the selected JST contacts and ferrules",
          "Multimeter (set every converter's output before connecting anything to it)",
          "Soldering iron, heat-shrink tubing and a heat-set insert tip",
          "Medium-strength threadlocker and cable ties"]
@@ -125,9 +125,11 @@ def wiring(project: RobotProject) -> dict:
             rows.append(_data("Hub motor hall sensors", "Controller hall ports", "5 V logic",
                               "5-pin hall lead supplied with the motor", "Match the colour order printed on the controller."))
         else:
-            rows.append(_data("Motor encoders", "Microcontroller (e.g. Raspberry Pi Pico)", "3.3 V logic",
-                              "4-wire encoder cable: A, B, 3.3 V, GND (JST-PH)",
-                              "Use 3.3 V encoder power so the outputs are safe for the microcontroller pins."))
+            rows.append(_data("Motor encoders (if fitted)", "Microcontroller (e.g. Raspberry Pi Pico)",
+                              "3.3 V MCU logic; encoder supply per datasheet",
+                              "Encoder-specific harness; A/B and supply/GND only after confirming its pinout",
+                              "Do not assume the encoder runs at 3.3 V or has 3.3 V outputs. Verify its supply and "
+                              "output type; use a rated level shifter or differential receiver before MCU GPIO."))
         rows.append(_data("Microcontroller", "Motor driver inputs", "3.3 V logic",
                           "PWM + DIR per channel and a shared GND (0.1\" jumper leads)" if not hub
                           else "RS485 or CAN pair from a USB adapter", "Driver logic GND must join the microcontroller GND."))
@@ -160,7 +162,10 @@ def wiring(project: RobotProject) -> dict:
             watts += grip.specs.get("power_w", 0)
         amps = watts / nominal * 1.5
         switched += watts / volts
-        hub = "U2D2 Power Hub" if dynamixel else "servo bus power board"
+        hub = ("U2D2 Power Hub" if amps <= 10 else "Separately rated servo power distribution") if dynamixel else "servo bus power board"
+        if dynamixel:
+            notes.append("The U2D2 Power Hub is rated for at most 10 A total. Check combined servo stall current, "
+                         "limit current and use separately rated power distribution if needed; U2D2 supplies data, not motor power.")
         names = " + ".join(dict.fromkeys(c.name for c in servos))
         if full <= limit:
             rows.append(_power("E-stop contactor", f"{hub} ({names})", volts, amps,
@@ -173,11 +178,12 @@ def wiring(project: RobotProject) -> dict:
         joints = sum(c.quantity for c in servos)
         rows.append(_power(hub, f"{names}: {joints} joints in a daisy chain", nominal, amps,
                            "Each servo has two bus ports: one in, one out. Leave slack at every joint.", fused=False) |
-                    {"wire": "3-wire servo bus cable (power, GND, data)",
-                     "connector": "JST EH 3-pin" if dynamixel else "Molex 5264 3-pin"})
-        rows.append(_data("Computer", "U2D2 (USB to TTL)" if dynamixel else "Feetech URT-1 bus adapter", "USB",
+                    {"wire": "Manufacturer bus cable: 3-wire TTL or 4-wire RS485 for the exact model" if dynamixel
+                             else "Manufacturer 3-wire servo bus cable (power, GND, data)",
+                     "connector": "Verify the -T/-R model and manufacturer pinout" if dynamixel else "Verify manufacturer pinout"})
+        rows.append(_data("Computer", "U2D2 (USB to TTL/RS485 per servo model)" if dynamixel else "Feetech URT-1 bus adapter", "USB",
                           "USB data cable", "Set each servo's ID (1 = base) before assembly."))
-        extras.append("Robotis U2D2 + U2D2 Power Hub" if dynamixel else "Feetech URT-1 bus servo adapter")
+        extras.append(f"Robotis U2D2 + {hub}" if dynamixel else "Feetech URT-1 bus servo adapter")
 
     compute = first("compute")
     if compute:
@@ -236,7 +242,10 @@ def wiring(project: RobotProject) -> dict:
     return {"source": source, "voltage_v": volts, "full_voltage_v": full, "total_a": round(total, 1),
             "estop": bool(switched), "rows": rows, "extras": extras, "notes": notes + [
                 "Currents are estimates from rated power. Check them against each part's datasheet.",
-                "Red is +, black is −. Crimp and heat-shrink every joint; never twist wires together.",
+                "Check startup/stall current, voltage drop, insulation temperature, cable bundling and fuse time-current curves. "
+                "These candidate gauges and fuses are not a verified electrical design.",
+                "Confirm polarity with a meter. Terminate each connector by its manufacturer's solder/crimp method; "
+                "strain-relieve and insulate joints, never twist bare wires together.",
                 "Run motor and power wires apart from USB and signal cables."]}
 
 
@@ -277,17 +286,10 @@ def printables(project: RobotProject, assembly: Assembly) -> list[dict]:
             continue
         groups[key] = {"name": spec.name, "kind": spec.kind, "component_id": node.component_id,
                        "quantity": 1, "spec": spec, "node": node}
-    frame = next((n for n in assembly.nodes if n.role == "frame"), None)
     for c in project.components:
         if c.source != "generated" or any(g["component_id"] == c.id for g in groups.values()):
             continue
-        if c.kind == "frame" and frame:
-            spec = PartSpec(kind="chassis_plate", name=f"{c.name} deck", length_mm=round(frame.size[0] * 1000),
-                            width_mm=round(frame.size[2] * 1000), thickness_mm=6, hole_diameter_mm=4.5,
-                            hole_inset_mm=12, material="petg")
-            groups[c.id] = {"name": spec.name, "kind": spec.kind, "component_id": c.id, "quantity": 1, "spec": spec}
-        else:
-            groups[c.id] = {"name": c.name, "kind": c.kind, "component_id": c.id, "quantity": c.quantity, "spec": None}
+        groups[c.id] = {"name": c.name, "kind": c.kind, "component_id": c.id, "quantity": c.quantity, "spec": None}
 
     items = []
     for index, g in enumerate(groups.values()):
@@ -300,7 +302,7 @@ def printables(project: RobotProject, assembly: Assembly) -> list[dict]:
         if spec.material not in DENSITY_G_MM3:
             items.append({"index": index, "name": g["name"], "kind": g["kind"], "component_id": g["component_id"],
                           "quantity": g["quantity"], "printable": False,
-                          "note": f"Specified in {spec.material}: machine it, or change the material to PETG to print it."})
+                          "note": f"Specified in {spec.material}: machine or buy it. A plastic replacement needs structural review."})
             continue
         size = _envelope(spec)
         flat = sorted(size[:2])
@@ -314,8 +316,9 @@ def printables(project: RobotProject, assembly: Assembly) -> list[dict]:
             "settings": "0.2 mm layers, 4 walls, 25% gyroid infill, 240 °C nozzle / 80 °C bed" if spec.material == "petg"
                         else "0.2 mm layers, 4 walls, 25% gyroid infill, 210 °C nozzle / 60 °C bed",
             "orientation": ORIENTATION.get(spec.kind, "Largest flat face on the bed."),
-            "note": "" if fits else (f"Larger than a {BED_MM[0]} × {BED_MM[1]} mm bed: print it on a large-format "
-                                     "printer or split it into tiles joined with M3 screws and splice plates."),
+            "note": "Prototype geometry only: verify mounting, strength, heat and clearance before use." if fits else (
+                f"Does not fit a {BED_MM[0]} × {BED_MM[1]} × {BED_MM[2]} mm printer. "
+                "Use a larger printer or redesign and validate a split assembly; this download is not pre-split."),
             "spec": spec.model_dump(),
         })
     return items
@@ -368,10 +371,12 @@ def assembly_guide(project: RobotProject) -> dict:
     if printed:
         total = sum(p["grams_each"] * p["quantity"] for p in printed)
         step("print", "Print the parts", [
-            f"Print {sum(p['quantity'] for p in printed)} parts in PETG, about {total:,} g of filament in total. "
+            f"Print {sum(p['quantity'] for p in printed)} parts using each part's listed material, about {total:,} g of filament in total. "
             "Download each STL from the print list below.",
             "Let PETG cool on the bed before removing it so the flanges stay flat.",
-            "Press M3 heat-set inserts into printed parts where screws go into plastic."])
+            "Check the printer envelope and preview the STL in a slicer; estimates exclude supports and purge material.",
+            "Dry-fit the modules first. The cover flange has clearance holes, not validated heat-set insert pockets; "
+            "use through-bolts and nuts or design insert bosses before installing inserts."])
     step("frame", "Build the frame", [
         f"Lay out the {frame.name.lower()} on a flat table and assemble it square; measure both diagonals "
         "before tightening." if frame else "",
@@ -409,18 +414,31 @@ def assembly_guide(project: RobotProject) -> dict:
             f"Before assembly, give each of the {joints} servos its own ID (1 = base up to {joints} = wrist) with "
             f"{'Dynamixel Wizard 2.0' if dynamixel else 'Feetech FD software'}, and set every horn to its centre position.",
             "Assemble from the base up: base joint, shoulder, elbow, wrist, then the gripper.",
-            "Daisy-chain the bus cables joint to joint with slack at each joint so nothing pulls when the arm moves."])
+            "Daisy-chain only servos on the same compatible bus and voltage, with slack at every joint. "
+            "Do not join different vendors' bus cables together; follow the separate wiring-table branches."])
     step("wiring", "Wire it up", [
         "Follow the wiring table below, starting at the battery and working outwards.",
         "Fit the main fuse first, within 15 cm of the battery's + terminal." if battery else "",
         "Set each converter's output voltage with a multimeter before you connect its load.",
+        "Use the manufacturer's terminal labels and pinout for the exact purchased revision. "
+        "For DC branches, connect + to VIN/+ and − to GND/−; connector colours are not a pinout. "
+        "Never connect motor or battery voltage directly to GPIO or USB.",
         "Tie cables down every 10 cm and leave a loop wherever a part moves."])
     if covers:
         step("covers", "Fit the covers", [
             "Route the cables out through the notch at the back of each cover.",
             f"Place the {' and the '.join(n.label.lower() for n in covers)} over their modules and fix each with "
             "4 × M3 × 10 screws through the flange.",
-            "On a metal deck, drill 3.4 mm holes and use nuts; on a printed deck, use M3 heat-set inserts."])
+            "Mark the actual flange hole positions and check underneath before drilling. Use through-bolts and nuts; "
+            "screw length depends on deck thickness. Add validated insert bosses if you prefer heat-set inserts.",
+            "Keep fan airflow, sensor views, charging access and the e-stop clear. These vented/notched covers are "
+            "not weatherproof, fire-rated battery enclosures or thermal-tested guards."])
+    elif inside:
+        step("covers", "Close the body housing", [
+            "The battery and computer sit inside the purchased body housing shown in the model; no separate "
+            "small module covers are needed.",
+            "Route and secure cables away from moving parts, then refit the manufacturer's service panels. "
+            "Check access to the power switch, charging connector and emergency stop."])
     step("test", "Power on and test", [
         "With the battery disconnected, check there is no short between + and − at the distribution block.",
         "Lift the wheels off the ground, then connect the battery and switch on." if motor else "Switch on the supply.",
@@ -428,6 +446,18 @@ def assembly_guide(project: RobotProject) -> dict:
         "Drive each motor slowly and check it turns the right way." if motor else "",
         "Move each joint slowly with a low torque limit and check its direction and range." if servos else "",
         "Check the camera and sensors show up on the computer before the first drive."])
-    return {"robot_type": assembly.robot_type, "steps": steps, "wiring": power, "prints": prints,
+    protection = [f"{n.label}: auto-sized PETG shell with mounting flange and cable exit; "
+                  f"{'vented for airflow' if n.spec['vent_slots'] else 'unvented roof'}." for n in covers]
+    if inside:
+        protection.insert(0, "Battery and internal electronics are protected by the body housing shown in the 3D model. "
+                          "That purchased housing is not a print-ready shell.")
+    buy = [{"name": c.name, "quantity": c.quantity, "kind": c.kind} for c in comps
+           if c.kind == 'frame' or not any(p['component_id'] == c.id and p['printable'] for p in prints)]
+    return {"project_id": project.id, "revision": project.revision,
+            "robot_type": assembly.robot_type, "steps": steps, "wiring": power, "prints": prints,
+            "protection": protection, "buy": buy,
             "tools": TOOLS, "bed_mm": list(BED_MM),
-            "notes": ["Assembly steps follow the layout; check fit and clearances as you build."]}
+            "notes": ["Prototype assembly plan, not a certified or pin-by-pin electrical design. Verify purchased "
+                      "dimensions, datasheet pinouts, stall currents, wire derating, fuse coordination and mechanical loads "
+                      "before building. Obtain qualified review before applying power.",
+                      "Assembly steps follow the layout; check fit and clearances as you build."]}
