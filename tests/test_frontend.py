@@ -12,6 +12,8 @@ class FrontendTests(unittest.TestCase):
         page = self.client.get('/')
         self.assertEqual(page.status_code, 200)
         self.assertIn('Run guided E2E demo', page.text)
+        self.assertIn('wheel_hub', page.text)
+        self.assertIn('Suggest part for this robot', page.text)
         self.assertIn("script-src 'self'", page.headers['content-security-policy'])
         self.assertIn('camera=()', page.headers['permissions-policy'])
         self.assertNotIn('<script>', page.text)
@@ -37,6 +39,9 @@ class FrontendTests(unittest.TestCase):
         demo = source.split('async function runDemo()')[1].split('async function integrations()')[0]
         self.assertNotIn('getUserMedia', demo)
         self.assertIn('/voice/transcribe?consent=true', demo)
+        self.assertIn('/cad/suggest', source)
+        self.assertIn('wheel_hub', source)
+        self.assertIn('gripper_jaw', source)
 
 
 if __name__ == '__main__':

@@ -59,7 +59,10 @@ The API has no authentication yet; don't expose it publicly.
 
 Install `pip install -e ".[cad]"`, then use
 `POST /projects/{id}/agents/mechanical` with a natural-language `prompt` (GLM 5.3)
-or a numeric `spec` (no credentials needed). It produces STEP, STL and GLB with
+or a numeric `spec` (no credentials needed). Six reviewed templates cover chassis
+plates, arm links, motor brackets, wheel hubs, gripper jaws, and sensor mounts.
+`GET /projects/{id}/cad/suggest` picks a signature part from the robot brief so
+different robots do not reuse the same blank. It produces STEP, STL and GLB with
 saved-geometry checks, attaches the files to a project revision, and can add a
 user-priced generated component to the finance BOM.
 See [CAD setup and examples](docs/text-to-cad.md) for Windows commands, supported

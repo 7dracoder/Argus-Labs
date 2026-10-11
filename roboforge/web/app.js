@@ -81,14 +81,51 @@ function sketch(spec) {
   svg.setAttribute('viewBox', '0 0 360 185'); svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', `${spec.kind.replaceAll('_', ' ')} dimension schematic`);
   const add = (tag, attrs, text) => { const el = document.createElementNS(ns, tag); for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value)); if (text) el.textContent = text; svg.append(el); };
-  add('path', {d: 'M 50 142 L 260 142 L 310 99 L 100 99 Z', fill: '#c6d8b6', stroke: '#487450', 'stroke-width': 1.5});
-  add('path', {d: 'M 50 142 L 50 151 L 260 151 L 310 108 L 310 99 L 260 142 Z', fill: '#a0b889', stroke: '#487450'});
-  if (spec.kind === 'motor_bracket') add('path', {d: 'M 100 99 L 100 40 L 310 40 L 310 99 Z', fill: '#d1dfc5', stroke: '#487450'});
-  for (const [cx, cy] of spec.kind === 'arm_link' ? [[94, 133], [266, 110]] : [[78, 135], [244, 135], [117, 107], [283, 107]])
-    add('ellipse', {cx, cy, rx: 6, ry: 3, fill: '#edf1e7', stroke: '#487450'});
-  add('text', {x: 60, y: 177, fill: '#487450', 'font-size': 11, 'font-family': 'monospace'}, `${spec.length_mm} × ${spec.width_mm} × ${spec.thickness_mm} mm`);
+  add('rect', {x: 0, y: 0, width: 360, height: 185, fill: '#edf1e7'});
+  if (spec.kind === 'wheel_hub') {
+    add('ellipse', {cx: 180, cy: 96, rx: 78, ry: 48, fill: '#9aa7b5', stroke: '#3d4a57', 'stroke-width': 1.6});
+    add('ellipse', {cx: 180, cy: 96, rx: 28, ry: 17, fill: '#c5ced7', stroke: '#3d4a57'});
+    add('ellipse', {cx: 180, cy: 96, rx: 12, ry: 7, fill: '#edf1e7', stroke: '#3d4a57'});
+    for (const [cx, cy] of [[132, 70], [228, 70], [132, 122], [228, 122]])
+      add('ellipse', {cx, cy, rx: 6, ry: 4, fill: '#edf1e7', stroke: '#3d4a57'});
+  } else if (spec.kind === 'gripper_jaw') {
+    add('path', {d: 'M 70 70 L 250 70 L 290 88 L 250 118 L 70 118 Z', fill: '#c6d8b6', stroke: '#487450', 'stroke-width': 1.5});
+    add('path', {d: 'M 70 118 L 70 128 L 250 128 L 290 98 L 290 88 L 250 118 Z', fill: '#a0b889', stroke: '#487450'});
+    for (const x of [210, 228, 246]) add('rect', {x, y: 62, width: 10, height: 8, fill: '#6f8f6a', stroke: '#487450'});
+    for (const [cx, cy] of [[92, 84], [92, 104]]) add('ellipse', {cx, cy, rx: 5, ry: 3, fill: '#edf1e7', stroke: '#487450'});
+  } else if (spec.kind === 'sensor_mount') {
+    add('path', {d: 'M 90 130 L 280 130 L 310 108 L 120 108 Z', fill: '#c6d8b6', stroke: '#487450', 'stroke-width': 1.5});
+    add('path', {d: 'M 90 50 L 120 50 L 120 108 L 90 130 Z', fill: '#d1dfc5', stroke: '#487450'});
+    add('rect', {x: 98, y: 68, width: 14, height: 28, fill: '#edf1e7', stroke: '#487450'});
+    for (const [cx, cy] of [[160, 118], [250, 118]]) add('ellipse', {cx, cy, rx: 5, ry: 3, fill: '#edf1e7', stroke: '#487450'});
+  } else if (spec.kind === 'arm_link') {
+    add('path', {d: 'M 70 96 A 28 28 0 0 1 98 68 L 262 68 A 28 28 0 0 1 290 96 A 28 28 0 0 1 262 124 L 98 124 A 28 28 0 0 1 70 96 Z', fill: '#c6d8b6', stroke: '#487450', 'stroke-width': 1.5});
+    add('rect', {x: 140, y: 82, width: 80, height: 28, fill: '#edf1e7', stroke: '#487450'});
+    for (const [cx, cy] of [[98, 96], [262, 96]]) add('ellipse', {cx, cy, rx: 8, ry: 8, fill: '#edf1e7', stroke: '#487450'});
+  } else if (spec.kind === 'motor_bracket') {
+    add('path', {d: 'M 80 138 L 270 138 L 300 112 L 110 112 Z', fill: '#c6d8b6', stroke: '#487450', 'stroke-width': 1.5});
+    add('path', {d: 'M 80 60 L 110 60 L 110 112 L 80 138 Z', fill: '#d1dfc5', stroke: '#487450'});
+    add('path', {d: 'M 110 112 L 190 112 L 110 70 Z', fill: '#b7c9a8', stroke: '#487450'});
+    for (const [cx, cy] of [[130, 124], [240, 124], [150, 116], [260, 116]]) add('ellipse', {cx, cy, rx: 5, ry: 3, fill: '#edf1e7', stroke: '#487450'});
+  } else {
+    add('path', {d: 'M 50 142 L 260 142 L 310 99 L 100 99 Z', fill: '#c6d8b6', stroke: '#487450', 'stroke-width': 1.5});
+    add('path', {d: 'M 50 142 L 50 151 L 260 151 L 310 108 L 310 99 L 260 142 Z', fill: '#a0b889', stroke: '#487450'});
+    add('rect', {x: 140, y: 112, width: 70, height: 22, fill: '#edf1e7', stroke: '#487450'});
+    for (const [cx, cy] of [[78, 135], [244, 135], [117, 107], [283, 107]]) add('ellipse', {cx, cy, rx: 6, ry: 3, fill: '#edf1e7', stroke: '#487450'});
+  }
+  const height = spec.bracket_height_mm && ['motor_bracket', 'sensor_mount'].includes(spec.kind) ? ` × ${spec.bracket_height_mm}H` : '';
+  add('text', {x: 18, y: 172, fill: '#487450', 'font-size': 11, 'font-family': 'monospace'}, `${spec.kind.replaceAll('_', ' ')} · ${spec.length_mm} × ${spec.width_mm} × ${spec.thickness_mm}${height} mm`);
   add('text', {x: 18, y: 24, fill: '#728175', 'font-size': 9, 'font-family': 'monospace'}, 'SCHEMATIC / NOT TO SCALE');
   return svg;
+}
+function applySuggestedSpec(spec) {
+  $('part-kind').value = spec.kind;
+  $('length').value = spec.length_mm;
+  $('width').value = spec.width_mm;
+  $('thickness').value = spec.thickness_mm;
+  $('preview').replaceChildren(sketch(spec));
+  $('geometry-state').textContent = 'SUGGESTED';
+  $('part-details').textContent = `Suggested ${spec.name} (${spec.kind.replaceAll('_', ' ')}) for this robot brief. Generate to build real STEP/STL/GLB.`;
 }
 function renderPart(part) {
   $('preview').replaceChildren(sketch(part.spec));
@@ -101,11 +138,26 @@ function renderPart(part) {
     link.setAttribute('download', ''); $('downloads').append(link);
   }
 }
-async function createDemo() { state.project = await api('/projects/demo', {}); resetConversation(); await refresh(); }
+async function suggestForProject() {
+  const result = await api(projectPath('/cad/suggest'));
+  applySuggestedSpec(result.spec);
+  return result;
+}
+async function createDemo() { state.project = await api('/projects/demo', {}); resetConversation(); await refresh(); await suggestForProject(); }
 async function generatePart(spec, prompt) {
   announce('Building reviewed geometry and checking the exported STEP…');
-  const result = await api(projectPath('/agents/mechanical'), {
-    ...(prompt ? {prompt} : {spec}), estimated_unit_cost_usd: Number($('part-price').value)});
+  const payload = {estimated_unit_cost_usd: Number($('part-price').value)};
+  if (prompt) payload.prompt = prompt;
+  else {
+    payload.spec = {...spec};
+    if (['motor_bracket', 'sensor_mount'].includes(spec.kind)) payload.spec.hole_inset_mm = Math.max(14, Number(spec.hole_inset_mm) || 14);
+    if (spec.kind === 'wheel_hub') {
+      payload.spec.hole_diameter_mm = Number(spec.hole_diameter_mm) || Math.max(8, Math.round(Number(spec.length_mm) * 0.15));
+      if (!(payload.spec.width_mm < payload.spec.length_mm - 2 * payload.spec.hole_diameter_mm))
+        payload.spec.width_mm = Math.round(payload.spec.length_mm * 0.6);
+    }
+  }
+  const result = await api(projectPath('/agents/mechanical'), payload);
   await refresh(); renderPart(result); return result;
 }
 async function seedTelemetry() {
@@ -150,7 +202,8 @@ async function runDemo() {
   try {
     step(0, 'running'); announce('01 / Creating a fresh demo robot project…'); await createDemo(); step(0, 'passed');
     current = 1; step(1, 'running'); $('part-price').value = '8';
-    const part = await generatePart({kind: 'arm_link', length_mm: 120, width_mm: 40, thickness_mm: 6});
+    const suggestion = await suggestForProject();
+    const part = await generatePart(suggestion.spec);
     if (!Object.values(part.geometry.checks).every(Boolean)) throw new Error('CAD geometry checks did not pass.'); step(1, 'passed');
     current = 2; step(2, 'running'); announce('03 / Writing labelled test telemetry to Tiger and checking its minute rollup…'); await seedTelemetry(); step(2, 'passed');
     current = 3; step(3, 'running');
@@ -173,14 +226,24 @@ async function integrations() {
 $('demo').addEventListener('click', () => action(runDemo));
 $('project-form').addEventListener('submit', event => { event.preventDefault(); action(async () => {
   state.project = await api('/projects', {name: $('project-name').value.trim(), requirements: {description: $('description').value, budget_usd: Number($('budget-input').value)}});
-  resetConversation(); await refresh(); announce('Project created. Generate a part or ask Forge.');
+  resetConversation(); await refresh(); await suggestForProject();
+  announce('Project created. A signature part was suggested for this brief — generate it or change the template.');
 }); });
 $('project-select').addEventListener('change', () => { const id = $('project-select').value; if (!id) return; action(async () => {
-  state.project = await api(`/projects/${encodeURIComponent(id)}`); resetConversation(); await refresh(); announce(`Resumed ${state.project.name}.`);
+  state.project = await api(`/projects/${encodeURIComponent(id)}`); resetConversation(); await refresh();
+  if (!Object.keys(state.project.manufacturing.cad_parts || {}).length) await suggestForProject();
+  announce(`Resumed ${state.project.name}.`);
 }); });
+$('suggest-part').addEventListener('click', () => action(async () => {
+  const result = await suggestForProject();
+  announce(`Suggested ${result.spec.kind.replaceAll('_', ' ')} for this robot. ${result.reason}`);
+}));
 $('cad-form').addEventListener('submit', event => { event.preventDefault(); action(async () => {
   const kind = $('part-kind').value;
-  await generatePart({kind, length_mm: Number($('length').value), width_mm: Number($('width').value), thickness_mm: Number($('thickness').value), ...(kind === 'motor_bracket' ? {hole_inset_mm: 14} : {})}, $('cad-prompt').value.trim());
+  const defaults = {kind, length_mm: Number($('length').value), width_mm: Number($('width').value), thickness_mm: Number($('thickness').value)};
+  if (kind === 'motor_bracket' || kind === 'sensor_mount') defaults.hole_inset_mm = 14;
+  if (kind === 'wheel_hub') { defaults.hole_diameter_mm = Math.max(8, Math.round(defaults.length_mm * 0.15)); defaults.width_mm = Math.min(defaults.width_mm, Math.round(defaults.length_mm * 0.6)); }
+  await generatePart(defaults, $('cad-prompt').value.trim());
   announce('Actual CAD exports are ready. The fabrication estimate is now included in the BOM.');
 }); });
 $('seed-telemetry').addEventListener('click', () => action(async () => { await seedTelemetry(); announce('Two labelled development samples written to Tiger. Minute rollup verified.'); }));

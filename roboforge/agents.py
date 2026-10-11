@@ -113,17 +113,24 @@ class MechanicalAgent(Agent):
         explanation = "Built from explicitly supplied dimensions."
         spec = request.spec
         if request.prompt:
+            from roboforge.cad.profiles import prompt_catalog_text, suggest_signature_part
+            suggested = suggest_signature_part(project.requirements)
             proposal = generate_structured(
                 """Select one supported robot part and propose dimensions in millimeters.
-Supported templates: chassis_plate (rectangular plate, four corner mounting bores),
-arm_link (rectangular link, two center-line pivot bores), motor_bracket (L bracket,
-four base mounting bores; upright has no mounting pattern yet).
+Choose the template that best matches THIS robot's mobility, tasks and payload — do not
+default every request to arm_link. Supported templates:
+""" + prompt_catalog_text() + """
+Wheel hub uses length_mm as outer diameter and width_mm as bolt-circle diameter.
+Sensor/motor brackets use bracket_height_mm for the upright.
 Use bounded PartSpec fields only. Preserve base parameters for edits unless requested.
+A suggested signature part for this project is provided as a starting point; follow the
+user request when it clearly asks for a different supported kind.
 List unconfirmed dimensions, motor compatibility and material choices as assumptions.
-Do not claim a whole robot, curved shape, structural safety or fit has been demonstrated.
+Do not claim a whole robot, structural safety or fit has been demonstrated.
 If the user asks for unsupported geometry, explain this limitation and list any proposed
 simplification in assumptions. Do not invent a motor's mounting dimensions.""",
                 f"Requirements: {project.requirements.model_dump_json()}\n"
+                f"Suggested signature part: {suggested.model_dump_json()}\n"
                 f"Base part: {base['spec'] if base else 'none'}\nRequest: {request.prompt}",
                 PartProposal,
             )

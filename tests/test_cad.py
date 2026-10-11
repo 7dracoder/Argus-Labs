@@ -13,15 +13,18 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from roboforge.cad.engine import ARTIFACTS, CADBuildFailed, build, runtime_status
-from roboforge.cad.spec import MechanicalRequest, PartSpec
+from roboforge.cad.profiles import suggest_signature_part
+from roboforge.cad.spec import MechanicalRequest, PART_KINDS, PartSpec
 from roboforge.cad.spec import PartProposal
 from roboforge.main import app
+from roboforge.models import Requirements
 
 
 class SpecChecks(unittest.TestCase):
     def test_bad_interfaces_and_nonfinite_numbers(self):
         for overrides in ({"hole_inset_mm": 2}, {"width_mm": 10}, {"length_mm": float("nan")},
-                          {"kind": "motor_bracket", "hole_inset_mm": 8}):
+                          {"kind": "motor_bracket", "hole_inset_mm": 8},
+                          {"kind": "wheel_hub", "length_mm": 40, "width_mm": 38, "hole_diameter_mm": 12}):
             with self.subTest(overrides=overrides), self.assertRaises(ValidationError):
                 PartSpec(**{"kind": "chassis_plate", **overrides})
 
@@ -29,7 +32,23 @@ class SpecChecks(unittest.TestCase):
         with self.assertRaises(ValidationError):
             MechanicalRequest()
         with self.assertRaises(ValidationError):
-            MechanicalRequest(prompt="an arm", spec=PartSpec(kind="arm_link"))
+            MechanicalRequest(prompt="an arm", spec=PartSpec(kind="arm_link", length_mm=140, width_mm=28))
+
+    def test_different_robots_get_different_signature_parts(self):
+        rover = suggest_signature_part(Requirements(
+            description="warehouse rover", mobility="wheeled", tasks=["haul bins"], payload_kg=5))
+        gripper = suggest_signature_part(Requirements(
+            description="pick up clothes", mobility="wheeled",
+            tasks=["pick up items", "carry objects"], payload_kg=2))
+        camera = suggest_signature_part(Requirements(
+            description="inspection mast", mobility="fixed", tasks=["depth camera survey"], payload_kg=1))
+        arm = suggest_signature_part(Requirements(
+            description="bench manipulator", mobility="fixed", tasks=["servo arm reach"], payload_kg=3))
+        self.assertEqual(rover.kind, "wheel_hub")
+        self.assertEqual(gripper.kind, "gripper_jaw")
+        self.assertEqual(camera.kind, "sensor_mount")
+        self.assertEqual(arm.kind, "arm_link")
+        self.assertNotEqual(rover.kind, gripper.kind)
 
 
 class APIContract(unittest.TestCase):
@@ -57,32 +76,51 @@ class APIContract(unittest.TestCase):
 @unittest.skipUnless(runtime_status()["configured"], "Install .[cad] to verify native exports")
 class CADIntegration(unittest.TestCase):
     def test_exports_cache_edits_and_revision_downloads(self):
+        samples = {
+            "arm_link": dict(length_mm=140, width_mm=28),
+            "chassis_plate": dict(length_mm=220, width_mm=160, thickness_mm=5),
+            "motor_bracket": dict(hole_inset_mm=14),
+            "wheel_hub": dict(length_mm=80, width_mm=48, thickness_mm=8, hole_diameter_mm=12),
+            "gripper_jaw": dict(length_mm=70, width_mm=22, hole_diameter_mm=3.2),
+            "sensor_mount": dict(length_mm=70, width_mm=50, thickness_mm=4, hole_inset_mm=14,
+                                 bracket_height_mm=50, hole_diameter_mm=3.2),
+        }
         with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"ROBOFORGE_CAD_ROOT": directory}):
-            for kind in ("arm_link", "chassis_plate", "motor_bracket"):
+            self.assertEqual(set(runtime_status()["templates"]), set(PART_KINDS))
+            for kind, overrides in samples.items():
                 with self.subTest(kind=kind):
-                    spec = PartSpec(kind=kind)
+                    spec = PartSpec(kind=kind, **overrides)
                     result = build(spec)
                     self.assertTrue(all(result["geometry"]["checks"].values()))
                     for path in ARTIFACTS.values():
                         self.assertGreater((Path(directory) / result["design_id"] / path).stat().st_size, 0)
                     self.assertTrue(build(spec)["cached"])
             client = TestClient(app)
-            project = client.post("/projects", json={"name": "Manufacturing demo"}).json()
+            project = client.post("/projects", json={
+                "name": "Manufacturing demo",
+                "requirements": {"description": "pick up clothes", "mobility": "wheeled",
+                                 "tasks": ["pick up items"], "payload_kg": 2, "budget_usd": 2500},
+            }).json()
+            suggested = client.get(f"/projects/{project['id']}/cad/suggest")
+            self.assertEqual(suggested.status_code, 200, suggested.text)
+            self.assertEqual(suggested.json()["spec"]["kind"], "gripper_jaw")
             endpoint = f"/projects/{project['id']}/agents/mechanical"
-            first = client.post(endpoint, json={"spec": {"kind": "arm_link"}, "estimated_unit_cost_usd": 8})
+            arm = dict(kind="arm_link", length_mm=140, width_mm=28)
+            first = client.post(endpoint, json={"spec": arm, "estimated_unit_cost_usd": 8})
             self.assertEqual(first.status_code, 200, first.text)
             first = first.json()
-            repeated = client.post(endpoint, json={"spec": {"kind": "arm_link"}, "estimated_unit_cost_usd": 8})
+            repeated = client.post(endpoint, json={"spec": arm, "estimated_unit_cost_usd": 8})
             self.assertEqual(repeated.status_code, 200, repeated.text)
             self.assertEqual(repeated.json()["component_id"], first["component_id"])
             self.assertTrue(repeated.json()["cached"])
-            proposal = PartProposal(spec=PartSpec(kind="arm_link", length_mm=160),
+            proposal = PartProposal(spec=PartSpec(kind="arm_link", length_mm=180, width_mm=28),
                                     assumptions=["Motor interface requires verification."],
                                     explanation="Length increased; other dimensions preserved.")
             with patch("roboforge.agents.generate_structured", return_value=proposal) as model:
                 second = client.post(endpoint, json={"prompt": "Make it 40 mm longer",
                                                     "base_design_id": first["design_id"]})
                 self.assertIn("Base part:", model.call_args.args[1])
+                self.assertIn("Suggested signature part:", model.call_args.args[1])
             self.assertEqual(second.status_code, 200, second.text)
             second = second.json()
             self.assertNotEqual(first["design_id"], second["design_id"])
@@ -93,7 +131,7 @@ class CADIntegration(unittest.TestCase):
             self.assertEqual(latest["components"][0]["unit_cost_usd"], 8)
             report = client.get(first["downloads"]["report"])
             self.assertEqual(report.status_code, 200)
-            self.assertEqual(json.loads(report.content)["bounds_mm"], [120, 40, 6])
+            self.assertEqual(json.loads(report.content)["bounds_mm"], [140, 28, 6])
             step = client.get(second["downloads"]["step"])
             self.assertEqual(step.status_code, 200)
             self.assertIn(b"ISO-10303-21", step.content)

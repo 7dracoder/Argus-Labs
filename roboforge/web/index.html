@@ -45,10 +45,18 @@
         <div id="preview" class="preview"><p class="muted">Your part will appear here.</p></div>
         <p class="fineprint">Schematic preview, not a CAD renderer. STEP, STL, and GLB downloads contain the actual generated geometry.</p>
         <form id="cad-form">
-          <label>Reviewed template<select id="part-kind"><option value="arm_link">Arm link</option><option value="chassis_plate">Chassis plate</option><option value="motor_bracket">Motor bracket</option></select></label>
-          <div class="dimensions"><label>Length · mm<input id="length" type="number" min="40" max="1000" step="1" value="120" required></label><label>Width · mm<input id="width" type="number" min="40" max="1000" step="1" value="40" required></label><label>Thickness · mm<input id="thickness" type="number" min="1" max="50" step="1" value="6" required></label></div>
+          <label>Reviewed template<select id="part-kind">
+            <option value="chassis_plate">Chassis plate</option>
+            <option value="arm_link">Arm link</option>
+            <option value="motor_bracket">Motor bracket</option>
+            <option value="wheel_hub">Wheel hub</option>
+            <option value="gripper_jaw">Gripper jaw</option>
+            <option value="sensor_mount">Sensor mount</option>
+          </select></label>
+          <div class="dimensions"><label>Length · mm<input id="length" type="number" min="10" max="1000" step="0.1" value="120" required></label><label>Width · mm<input id="width" type="number" min="10" max="1000" step="0.1" value="40" required></label><label>Thickness · mm<input id="thickness" type="number" min="1" max="50" step="0.1" value="6" required></label></div>
           <label>Fabrication estimate · USD<input id="part-price" type="number" min="0" step="0.01" value="8" required></label>
-          <details><summary>Or describe a part to GLM</summary><label>Optional CAD prompt<textarea id="cad-prompt" rows="2" maxlength="4000" placeholder="Create a 120 × 40 × 6 mm arm link…"></textarea></label><p class="fineprint">Uses Baseten. Only the three reviewed templates are supported. Unknown interfaces remain assumptions.</p></details>
+          <div class="cad-actions"><button type="button" id="suggest-part" class="secondary requires-project" disabled>Suggest part for this robot</button></div>
+          <details><summary>Or describe a part to GLM</summary><label>Optional CAD prompt<textarea id="cad-prompt" rows="2" maxlength="4000" placeholder="Create a wheel hub for this rover…"></textarea></label><p class="fineprint">Uses Baseten. Six reviewed templates are supported; the model should match the robot type. Unknown interfaces remain assumptions.</p></details>
           <button type="submit" class="primary requires-project" disabled>Generate part & update budget</button>
         </form>
         <p id="part-details" class="muted"></p><div id="downloads" class="downloads"></div>

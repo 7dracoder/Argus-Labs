@@ -1,4 +1,4 @@
-"""Generate three example parts without an API key; optionally render snapshots.
+"""Generate example parts without an API key; optionally render snapshots.
 
 Usage: python examples/cad_demo.py [--snapshot | --preview]
 """
@@ -47,7 +47,13 @@ def main():
         PartSpec(name="Chassis plate", kind="chassis_plate", length_mm=220, width_mm=160, thickness_mm=5),
         PartSpec(name="Arm link", kind="arm_link", length_mm=160, width_mm=30, thickness_mm=6),
         PartSpec(name="Motor bracket", kind="motor_bracket", length_mm=60, width_mm=50,
-                 thickness_mm=4, bracket_height_mm=45),
+                 thickness_mm=4, hole_inset_mm=14, bracket_height_mm=45),
+        PartSpec(name="Wheel hub", kind="wheel_hub", length_mm=80, width_mm=48,
+                 thickness_mm=8, hole_diameter_mm=12),
+        PartSpec(name="Gripper jaw", kind="gripper_jaw", length_mm=70, width_mm=22,
+                 thickness_mm=6, hole_diameter_mm=3.2),
+        PartSpec(name="Sensor mount", kind="sensor_mount", length_mm=70, width_mm=50,
+                 thickness_mm=4, hole_inset_mm=14, bracket_height_mm=50, hole_diameter_mm=3.2),
     ):
         result = build(spec)
         directory = root_directory() / result["design_id"]

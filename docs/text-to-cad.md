@@ -48,9 +48,19 @@ Or supply `prompt` instead of `spec`:
 {"prompt": "Make a PETG arm link 160 mm long, 30 mm wide and 6 mm thick, with two 4 mm pivot bores 10 mm from the ends."}
 ```
 
-The supported templates are a four-hole chassis plate, two-hole arm link, and
-an L-shaped motor bracket with four base holes. The bracket's upright has no
-motor-specific mounting holes; those require a verified motor interface.
+The supported templates are robot-specific and visually distinct:
+
+- `chassis_plate` — base plate with four corner mounts and a cable pass-through
+- `arm_link` — capsule-ended link with pivot bores and a lightening pocket
+- `motor_bracket` — L bracket with four base holes and a stiffening rib (upright
+  has no motor bolt pattern yet; that needs a verified motor interface)
+- `wheel_hub` — circular flange (`length_mm` = outer diameter, `width_mm` = bolt
+  circle) with axle bore and four bolt holes
+- `gripper_jaw` — finger with base mount bores and raised grip serrations
+- `sensor_mount` — camera/depth mount with base holes and an upright window slot
+
+`GET /projects/{id}/cad/suggest` sizes a signature part from the project's
+mobility, tasks, and payload so different robots do not reuse the same blank.
 All CAD dimensions are mm, using XY as the base plane and +Z up. GLB uses the
 runtime's glTF coordinate convention; consumers should use glTF scene units.
 Prompts produce validated numeric parameters, not Python to execute. Unsupported
