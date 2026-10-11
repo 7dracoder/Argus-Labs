@@ -46,9 +46,9 @@ export class Showcase {
 
     const floor = new THREE.Mesh(new THREE.CircleGeometry(2.2, 64), new THREE.ShadowMaterial({opacity: 0.18}));
     floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
-    const platform = new THREE.Mesh(new THREE.CylinderGeometry(.64, .69, .035, 96), new THREE.MeshStandardMaterial({color: 0x1a303e, metalness: .65, roughness: .4}));
+    const platform = new THREE.Mesh(new THREE.CylinderGeometry(.64, .69, .035, 96), new THREE.MeshStandardMaterial({color: 0xd6ddce, metalness: .2, roughness: .65}));
     platform.position.y = -.02; platform.receiveShadow = true; scene.add(platform);
-    const ringMat = new THREE.MeshBasicMaterial({color: 0x8de4d3, transparent: true, opacity: 0.65, side: THREE.DoubleSide});
+    const ringMat = new THREE.MeshBasicMaterial({color: 0x345d49, transparent: true, opacity: 0.65, side: THREE.DoubleSide});
     this.ring = new THREE.Mesh(new THREE.RingGeometry(0.66, 0.672, 128), ringMat);
     this.pulse = new THREE.Mesh(new THREE.RingGeometry(0.66, 0.668, 128), ringMat.clone());
     for (const ring of [this.ring, this.pulse]) { ring.rotation.x = -Math.PI / 2; ring.position.y = 0.002; scene.add(ring); }

@@ -20,6 +20,7 @@ from roboforge.shopping import where_to_buy
 from roboforge.design import BriefError, brief_problem, configure
 from roboforge.catalog import CATALOG, DEMO_BUILD, make_component
 from roboforge.finance import TCOInput, build_bom, check_budget, estimate_tco, optimize_cost
+from roboforge.finance.research import ResearchInput, research_report
 from roboforge.llm import LLMResponseError, LLMUnavailable, llm_status
 from roboforge.voice import VoiceRequest, profile as voice_profile, respond as voice_respond
 from roboforge.models import ChatMessage, Component, Requirements, RobotProject, ValidationRecord
@@ -425,6 +426,12 @@ def optimize(project_id: str, body: OptimizeRequest):
 def get_tco(project_id: str, body: TCOInput, revision: int | None = None):
     p = _get(project_id, revision)
     return estimate_tco(p.components, build_bom(p.components), body)
+
+
+@router.post("/projects/{project_id}/finance/research")
+def financial_research(project_id: str, body: ResearchInput, revision: int | None = None):
+    """Public filings, cited analyst notes, walk-forward evaluation and robot ROI."""
+    return research_report(_get(project_id, revision), body)
 
 
 @router.get("/projects/{project_id}/finance/compare")

@@ -6,8 +6,8 @@
   <title>Argus Labs · Robotics Design Studio</title>
   <link rel="icon" type="image/svg+xml" href="/ui/assets/logo.svg?v=2">
   <link rel="stylesheet" href="/ui/assets/style.css?v=5">
-  <link rel="stylesheet" href="/ui/assets/studio.css?v=1">
-  <script type="module" src="/ui/assets/app.js?v=7"></script>
+  <link rel="stylesheet" href="/ui/assets/studio.css?v=2">
+  <script type="module" src="/ui/assets/app.js?v=8"></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -43,9 +43,9 @@
       <div class="hero-grid">
       <div class="hero-copy">
       <div class="hero">
-        <span class="hero-tag"><i aria-hidden="true"></i>From imagination to engineering</span>
-        <h1 id="start-title">Your idea.<br><span>In motion.</span></h1>
-        <p class="lead">Give your robot a purpose. Explore its design in 3D, see every component, then take it from the screen to your workbench.</p>
+        <span class="hero-tag">Argus Labs / Design workspace</span>
+        <h1 id="start-title">Build a robot.<br><span>Know the cost.</span></h1>
+        <p class="lead">Describe the job and set a budget. Work through the parts, inspect the CAD, and check whether the numbers make sense.</p>
         <div class="hero-deliverables"><span>01 / REAL CAD</span><span>02 / PARTS & COST</span><span>03 / BUILD GUIDE</span></div>
       </div>
 
@@ -296,6 +296,31 @@
       <article class="card downloads-card" aria-labelledby="downloads-title">
         <div class="card-heading"><span class="eyebrow" id="downloads-title">Download</span><button id="csv" class="quiet requires-project" disabled>Parts list (CSV)</button></div>
         <div class="card-body"><div id="downloads" class="downloads"><p class="muted">Build a custom part to download its CAD files.</p></div></div>
+      </article>
+
+      <article class="card finance-research" aria-labelledby="research-title">
+        <div class="card-heading"><h2 id="research-title">Investment research</h2><span class="badge">Public filings</span></div>
+        <div class="card-body">
+          <p class="research-intro">For analysts researching robotics businesses: compare company revenue, question the trend, and stress-test the operating economics of this build.</p>
+          <form id="research-form" class="form">
+            <label>Research question<textarea id="research-question" rows="2" maxlength="1500" required>Which robotics businesses deserve further research, and is this robot economical to operate?</textarea></label>
+            <div class="fields three">
+              <label>Annual savings estimate · USD<input id="research-savings" type="number" min="0" max="10000000" step="100" value="1500" required></label>
+              <label>Operating hours per day<input id="research-hours" type="number" min="0" max="24" step="0.5" value="2" required></label>
+              <label>Public data<select id="research-source"><option value="snapshot">Historical filings snapshot</option><option value="live">Retrieve annual filings from SEC</option></select></label>
+            </div>
+            <div class="research-actions"><label class="research-ai"><input id="research-ai" type="checkbox" checked> Add an AI research note with citations</label><button class="button requires-project" disabled type="submit">Run research</button></div>
+          </form>
+          <p id="research-status" class="muted" role="status">The snapshot contains public annual revenue through fiscal 2024 for Teradyne and fiscal 2025 for NVIDIA. Live retrieval requires SEC access.</p>
+          <div id="research-results" hidden>
+            <div class="table-scroll"><table class="research-table"><caption>Companies to investigate</caption><thead><tr><th>Company</th><th>Annual revenue</th><th>Change</th><th>Research flag</th></tr></thead><tbody id="research-companies"></tbody></table></div>
+            <div id="research-notes" class="research-notes"></div>
+            <div class="table-scroll"><table class="research-table"><caption>Robot ownership over three years</caption><thead><tr><th>Savings assumption</th><th>Annual savings</th><th>Total ownership cost</th><th>Payback</th><th>ROI</th></tr></thead><tbody id="research-economics"></tbody></table></div>
+            <details open><summary>Evaluation: does a revenue trend beat a simple baseline?</summary><p class="muted">We predict each next annual period using only the previous two periods, then compare absolute error with an unchanged-revenue baseline. Lower error is better. This evaluates a numerical research signal, not the AI note or investment returns.</p><div id="research-evaluation"></div></details>
+            <details><summary>Sources and assumptions</summary><ol id="research-sources" class="research-sources"></ol><p id="research-limitations" class="muted"></p></details>
+            <button id="research-export" class="quiet requires-project" type="button" disabled>Download research (JSON)</button>
+          </div>
+        </div>
       </article>
 
       <div class="next-row">

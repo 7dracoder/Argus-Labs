@@ -1,0 +1,19 @@
+{
+  "as_of": "2026-10-11",
+  "companies": {
+    "TER": [
+      {"period_end": "2020-12-31", "filed": "2023-02-22", "revenue_usd": 3121469000, "url": "https://investors.teradyne.com/sec-filings/all-sec-filings/content/0001193125-23-044711/d414778d10k.htm"},
+      {"period_end": "2021-12-31", "filed": "2023-02-22", "revenue_usd": 3702881000, "url": "https://investors.teradyne.com/sec-filings/all-sec-filings/content/0001193125-23-044711/d414778d10k.htm"},
+      {"period_end": "2022-12-31", "filed": "2023-02-22", "revenue_usd": 3155045000, "url": "https://investors.teradyne.com/sec-filings/all-sec-filings/content/0001193125-23-044711/d414778d10k.htm"},
+      {"period_end": "2023-12-31", "filed": "2024-02-22", "revenue_usd": 2676298000, "url": "https://investors.teradyne.com/sec-filings/all-sec-filings/content/0000950170-24-018701/ter-20231231.htm"},
+      {"period_end": "2024-12-31", "filed": "2025-03-27", "revenue_usd": 2819880000, "url": "https://www.sec.gov/Archives/edgar/data/0000097210/000095017025046348/ter-ars-2025.pdf"}
+    ],
+    "NVDA": [
+      {"period_end": "2021-01-31", "filed": "2022-03-18", "revenue_usd": 16675000000, "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581022000036/nvda-20220130.htm"},
+      {"period_end": "2022-01-30", "filed": "2022-03-18", "revenue_usd": 26914000000, "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581022000036/nvda-20220130.htm"},
+      {"period_end": "2023-01-29", "filed": "2025-02-26", "revenue_usd": 26974000000, "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581025000023/nvda-20250126.htm"},
+      {"period_end": "2024-01-28", "filed": "2025-02-26", "revenue_usd": 60922000000, "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581025000023/nvda-20250126.htm"},
+      {"period_end": "2025-01-26", "filed": "2025-02-26", "revenue_usd": 130497000000, "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581025000023/nvda-20250126.htm"}
+    ]
+  }
+}

@@ -25,4 +25,4 @@ build-backend = "setuptools.build_meta"
 include = ["roboforge*"]
 
 [tool.setuptools.package-data]
-roboforge = ["web/*.html", "web/*.css", "web/*.js"]
+roboforge = ["web/*.html", "web/*.css", "web/*.js", "web/*.svg", "web/vendor/*.js", "finance/*.json"]

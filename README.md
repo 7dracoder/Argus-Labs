@@ -162,6 +162,57 @@ Speech/transcription may misread numbers; the deterministic BOM and budget are
 authoritative. The demo verifies the pipeline, not speech accuracy or engineering
 safety. Frontend source is in `roboforge/web/`.
 
+## Financial research for robotics analysts
+
+The design workspace includes **Investment research**, built for the photo's
+Diameter AI for Finance general track. An analyst can investigate robotics and
+automation businesses, compare public filing revenue, then stress-test the
+ownership economics of the current robot revision. The research question,
+estimated annual savings and daily operating hours are editable. No trading
+accounts or private financial datasets are used.
+
+`POST /projects/{id}/finance/research?revision=N` returns Teradyne and NVIDIA
+annual revenue, demand research flags, source links, an optional AI note with
+validated citation IDs, three savings scenarios, and a downloadable report.
+The AI uses the existing configured Gemini or GLM adapter. Arithmetic, scenarios
+and evaluation are calculated in Python. A provider failure is visible and
+preserves the calculated report. Research never modifies the robot design.
+
+The default snapshot is a deliberately historical dataset collected from public
+annual filings, with ten records through Teradyne FY2024 and NVIDIA FY2025.
+It is not current share prices or a robotics segment revenue dataset. Every row
+links to its public source, and the snapshot's `filed` value identifies that
+source document, which may contain comparative prior-year figures.
+
+Live mode uses the [SEC Company Facts API](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
+with an identifying `SEC_USER_AGENT`, a 15-minute cache and serialized retrieval.
+The adapter filters annual USD durations, rejects quarterly values and malformed
+provenance, selects periods by actual end date instead of a comparative fiscal
+label, and retains the first available filing observation for each period.
+If SEC access is blocked, the site reports it and offers the explicit historical
+snapshot. It never silently labels the snapshot as live data.
+
+The evaluation compares a next-period revenue trend estimate with an
+unchanged-revenue baseline over held-out annual periods. Both MAEs and the fold
+values are visible, including cases where the baseline wins. The snapshot test
+is retrospective and does not claim to reconstruct what an investor knew at
+each date. Live folds filter filing availability. Neither evaluates stock
+returns or the language model's predictive accuracy.
+
+Run the normal test suite and browser check against a local server:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+# Playwright and Chrome must be available to Node; NODE_PATH can use bundled packages.
+ARGUS_TEST_URL=http://127.0.0.1:8765 ARGUS_EXPECT_AI=1 node examples/studio_e2e.mjs
+```
+
+The browser check covers the white theme, parts list, real CAD export, cost
+optimization, cited research, report download, assembly guide, mobile overflow
+and a natural-language design. Screenshots and results go to ignored
+`artifacts/dev/studio-e2e/`. It uses one configured AI research request and a
+natural-language design request; microphone and camera capture are not used.
+
 ## Sponsor integration setup
 
 Snowflake is intentionally not included yet. The other sponsor integrations are

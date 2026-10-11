@@ -2,12 +2,14 @@ import {Viewer, webglAvailable} from './viewer.js?v=7';
 import {LiveVoice} from './live.js?v=4';
 import {Showcase} from './showcase.js?v=5';
 import {Blueprint} from './blueprint.js?v=4';
+import {FinancialResearch} from './financial.js?v=1';
 
 const $ = id => document.getElementById(id);
 const state = {project: null, assembly: null, bom: null, stageKey: null, view: 'robot', partId: null, selected: null,
   lastAudio: null, interaction: null, busy: false, viewer: null, buy: null, guide: null, asmViewer: null, asmKey: null};
 const money = value => new Intl.NumberFormat('en-US', {style: 'currency', currency: 'USD', maximumFractionDigits: 0}).format(value);
 const cents = value => new Intl.NumberFormat('en-US', {style: 'currency', currency: 'USD'}).format(value);
+const financialResearch = new FinancialResearch({api, action, announce, project: () => state.project});
 
 const EXAMPLES = {
   household: ['A household robot that picks up clothes and small items in my one-floor apartment, carries up to 2 kg and responds to my voice.', 2500],
@@ -91,6 +93,7 @@ async function refresh() {
     api(projectPath()), api(projectPath('/finance/bom')), api(projectPath('/finance/budget')),
     api(projectPath('/assembly'))]);
   Object.assign(state, {project, bom, assembly});
+  financialResearch.invalidate(project);
   $('project-title').textContent = project.name;
   $('robot-type').textContent = assembly.robot_type.replaceAll('_', ' ');
   $('revision').textContent = `Revision ${project.revision}`;

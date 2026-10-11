@@ -8,6 +8,7 @@ from roboforge.models import Component
 
 
 class TCOInput(BaseModel):
+    model_config = {"allow_inf_nan": False}
     years: float = Field(default=3, gt=0)
     hours_per_day: float = Field(default=2, ge=0, le=24)
     duty_cycle: float = Field(default=0.5, ge=0, le=1, description="Avg fraction of peak power drawn")
@@ -45,11 +46,11 @@ def estimate_tco(components: list[Component], bom: BOM, params: TCOInput) -> TCO
 
     tasks = params.tasks_per_day * 365 * params.years
     payback = roi = None
-    if params.annual_savings_usd:
+    if params.annual_savings_usd is not None:
         annual_running = (energy + maintenance) / params.years
         net_annual = params.annual_savings_usd - annual_running
         payback = round(bom.total_usd / net_annual, 2) if net_annual > 0 else None
-        roi = round((params.annual_savings_usd * params.years - tco) / tco * 100, 1)
+        roi = round((params.annual_savings_usd * params.years - tco) / tco * 100, 1) if tco > 0 else None
 
     return TCOReport(
         hardware_usd=bom.total_usd,
