@@ -1,10 +1,10 @@
 # Robot-part CAD integration
 
-RoboForge uses the MIT-licensed [earthtojake/text-to-cad](https://github.com/earthtojake/text-to-cad)
+Argus Labs uses the MIT-licensed [earthtojake/text-to-cad](https://github.com/earthtojake/text-to-cad)
 runtime (`cadgen==0.7.20`). The useful upstream patterns are parametric model
 factories, declared STEP/STL/GLB exports, cached builds, and validation of saved
 geometry. The runtime uses build123d/OpenCascade. It does not provide an LLM or
-a text-to-CAD HTTP endpoint; RoboForge's GLM 5.3 client interprets text.
+a text-to-CAD HTTP endpoint; Argus Labs' GLM 5.3 client interprets text.
 This integration is original application code; the upstream runtime is an
 optional dependency rather than a vendored copy of its plugin or viewer.
 
@@ -111,5 +111,5 @@ $env:CADGEN_UPDATE_CHECK = "0"
 
 See the [upstream model contract](https://github.com/earthtojake/text-to-cad/blob/main/skills/cad/references/step-generation.md)
 and [export documentation](https://github.com/earthtojake/text-to-cad/blob/main/skills/cad/references/supported-exports.md)
-for additional runtime features. RoboForge currently integrates part generation;
+for additional runtime features. Argus Labs currently integrates part generation;
 assembly kinematics, vendor STEP lookup, URDF, and fabrication ordering are future extensions.

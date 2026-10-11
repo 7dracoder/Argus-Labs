@@ -1,4 +1,4 @@
-"""RoboForge Engine."""
+"""Argus Labs Engine (Python package name kept as `roboforge`)."""
 
 from roboforge.config import load_environment
 

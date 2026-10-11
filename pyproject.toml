@@ -1,7 +1,7 @@
 [project]
 name = "roboforge"
 version = "0.1.0"
-description = "RoboForge Engine: AI robotics design backend (skeleton, finance-first)"
+description = "Argus Labs: AI robotics design backend (finance-first)"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi==0.143.0",

@@ -34,6 +34,7 @@ class Requirements(BaseModel):
     mobility: str | None = None  # wheeled, legged, fixed...
     runtime_hours: float | None = None
     budget_usd: float | None = Field(default=None, ge=0)
+    robot_type: str | None = None  # archetype override (see roboforge/archetypes.py); None = automatic
     contingency_pct: float = Field(default=10.0, ge=0, le=100)
     assumptions: list[str] = []  # unconfirmed assumptions awaiting user approval
 

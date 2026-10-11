@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from roboforge.catalog import CATALOG, CRITICAL_SPECS, make_component
+from roboforge.catalog import CATALOG, CRITICAL_SPECS, make_component, same_body_fit
 from roboforge.models import Component
 
 
@@ -45,7 +45,7 @@ def _best_substitute(c: Component) -> tuple[str, dict] | None:
     """Cheapest compatible catalog part that is cheaper than the current one."""
     options = [
         (cid, item) for cid, item in CATALOG.items()
-        if item["kind"] == c.kind and cid != c.catalog_id
+        if item["kind"] == c.kind and cid != c.catalog_id and same_body_fit(c.catalog_id, cid)
         and item["unit_cost_usd"] < c.unit_cost_usd and _meets_critical_specs(c, item)
     ]
     return min(options, key=lambda o: o[1]["unit_cost_usd"]) if options else None

@@ -1,6 +1,6 @@
-# RoboForge Engine (skeleton)
+# Argus Labs
 
-Backend for RoboForge AI. Architect, Finance, and Mechanical agents are implemented;
+Robot design workspace and backend. The Python package is still named `roboforge`. Architect, Finance, and Mechanical agents are implemented;
 the Mechanical Agent generates parametric robot parts through text-to-cad's cadgen runtime.
 
 ## Run
@@ -75,7 +75,20 @@ mode and validates responses with the same Pydantic schemas used by the agents.
 Live calls require your key. Later, set `LLM_PROVIDER=gemini` and `GEMINI_API_KEY`
 to switch providers; `GEMINI_MODEL` remains configurable.
 
-## Minimal local frontend
+## Website
+
+Open `http://127.0.0.1:8765` and describe a robot in plain words with a budget.
+`POST /projects/{id}/design/auto` (`roboforge/design.py`) picks the cheapest catalog
+parts that meet torque, energy and load needs, then fits the budget.
+`GET /projects/{id}/assembly` (`roboforge/assembly.py`) lays out the whole robot
+for the 3D view; generated CAD parts (deck plate, arm links, motor brackets) are
+placed as their real GLB geometry. The layout is illustrative, not fit-checked.
+`GET /projects/{id}/robot/{glb|step|report}` (`roboforge/cad/robot.py`) builds the
+whole robot as a real B-rep model with text-to-cad's cadgen/build123d kernel:
+labelled, coloured parts exported to STEP and GLB, cached by layout hash. Catalog
+parts are representative models, not vendor CAD.
+
+## Minimal local frontend (older notes)
 
 Run the backend, then open `http://127.0.0.1:8765`:
 
@@ -110,6 +123,18 @@ ready to configure without putting a secret in source control.
 See [Sponsor setup and Forge voice agent](docs/sponsor-setup.md) for the configured
 free Tiger database, speech input/output, the consented native Presage bridge,
 live verification results, and remaining credential requirements.
+
+### Live voice conversation ("Talk to Forge")
+
+The bar at the top of the site starts a real-time, hands-free conversation using
+ElevenLabs Agents (`roboforge/integrations/voice_agent.py`, `roboforge/web/live.js`).
+On first use the backend creates a private agent (Gemini via ElevenLabs, your
+`ELEVENLABS_VOICE_ID`), keeps it in sync by config hash, and returns a short-lived
+signed WebSocket URL from `POST /voice/live/session`. The agent changes the design
+through browser client tools that call the normal API: `get_robot_status`,
+`start_new_robot`, `set_budget`, `update_brief`, `make_it_cheaper`,
+`highlight_part`, `build_custom_part` (asks for confirmation first). The SDK and
+its audio worklets are vendored in `roboforge/web/vendor/` so the CSP stays strict.
 
 ### ElevenLabs: Forge robot-design voice copilot
 

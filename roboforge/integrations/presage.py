@@ -1,4 +1,4 @@
-"""Privacy-preserving interface between a Presage client and RoboForge.
+"""Privacy-preserving interface between a Presage client and Argus Labs.
 
 Presage runs where the camera is available. This backend deliberately accepts
 only a coarse, user-consented interaction state; it never accepts raw video or

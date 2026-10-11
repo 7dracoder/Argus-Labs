@@ -3,75 +3,377 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RoboForge · Robot design workbench</title>
-  <link rel="stylesheet" href="/ui/assets/style.css">
-  <script type="module" src="/ui/assets/app.js"></script>
+  <title>Argus Labs · Design a robot</title>
+  <link rel="icon" type="image/svg+xml" href="/ui/assets/logo.svg?v=2">
+  <link rel="stylesheet" href="/ui/assets/style.css?v=4">
+  <script type="module" src="/ui/assets/app.js?v=4"></script>
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/" aria-label="RoboForge home"><span class="mark">RF</span> RoboForge <span class="tag">LAB / 01</span></a>
-    <span class="local">LOCAL PROTOTYPE</span>
-  </header>
-  <main>
-    <section class="intro">
-      <div><p class="eyebrow">FROM IDEA TO A COSTED PART</p><h1>Your robot, one step at a time.</h1><p class="muted">A small workbench connecting CAD, cost, telemetry, and voice. Real API calls. No hidden automation.</p></div>
-      <button id="demo" class="primary">Run guided E2E demo <span aria-hidden="true">↗</span></button>
-    </section>
-    <div id="status" class="status" role="status" aria-live="polite">Connecting to the backend…</div>
-    <section class="services" aria-label="Integration status"><span id="llm-status">Baseten · checking</span><span id="voice-status">ElevenLabs · checking</span><span id="tiger-status">Tiger · checking</span><span id="presage-status">Presage · camera off</span></section>
-    <ol class="flow" aria-label="End-to-end progress">
-      <li data-step="0"><b>01</b><span>Project</span><small>Not run</small></li><li data-step="1"><b>02</b><span>CAD + budget</span><small>Not run</small></li><li data-step="2"><b>03</b><span>Tiger telemetry</span><small>Not run</small></li><li data-step="3"><b>04</b><span>Forge reply + speech</span><small>Not run</small></li><li data-step="4"><b>05</b><span>Speech transcription</span><small>Not run</small></li>
-    </ol>
-    <p class="fineprint">The guided demo creates a new sample project, writes two labelled development measurements, and uses small Baseten / ElevenLabs credits. It transcribes generated speech, not your microphone.</p>
-    <div class="workspace">
-      <aside class="panel project">
-        <div class="panel-heading"><span class="eyebrow">01 / PROJECT</span><span id="revision" class="badge">NO PROJECT</span></div>
-        <h2 id="project-title">Start with a brief.</h2>
-        <form id="project-form">
-          <label>Project name<input id="project-name" value="My household robot" maxlength="200" required></label>
-          <label>What should it do?<textarea id="description" rows="3" maxlength="4000">Carry small objects around a one-floor apartment.</textarea></label>
-          <label>Budget estimate (USD)<input id="budget-input" type="number" min="0" step="1" value="2500" required></label>
-          <button type="submit" class="secondary">Create project</button>
-        </form>
-        <label class="resume-label">Or resume this server session<select id="project-select"><option value="">Choose a project</option></select></label>
-        <div class="metrics"><div><small>PARTS ESTIMATE</small><strong id="bom-total">—</strong></div><div><small>WITH CONTINGENCY</small><strong id="projected">—</strong></div></div>
-        <p id="budget-result" class="muted">Create a project to see its budget.</p>
-        <div id="bom-lines" class="bom-list" aria-label="Bill of materials"></div>
-        <p class="fineprint">Catalog prices are placeholders. Estimates exclude tax, shipping, and labor. Project revisions are in memory and reset when the server restarts.</p>
-      </aside>
-      <section class="panel design">
-        <div class="panel-heading"><span class="eyebrow">02 / MECHANICAL</span><span id="geometry-state" class="badge">AWAITING PART</span></div>
-        <h2>Give the idea geometry.</h2>
-        <div id="preview" class="preview"><p class="muted">Your part will appear here.</p></div>
-        <p class="fineprint">Schematic preview, not a CAD renderer. STEP, STL, and GLB downloads contain the actual generated geometry.</p>
-        <form id="cad-form">
-          <label>Reviewed template<select id="part-kind"><option value="arm_link">Arm link</option><option value="chassis_plate">Chassis plate</option><option value="motor_bracket">Motor bracket</option></select></label>
-          <div class="dimensions"><label>Length · mm<input id="length" type="number" min="40" max="1000" step="1" value="120" required></label><label>Width · mm<input id="width" type="number" min="40" max="1000" step="1" value="40" required></label><label>Thickness · mm<input id="thickness" type="number" min="1" max="50" step="1" value="6" required></label></div>
-          <label>Fabrication estimate · USD<input id="part-price" type="number" min="0" step="0.01" value="8" required></label>
-          <details><summary>Or describe a part to GLM</summary><label>Optional CAD prompt<textarea id="cad-prompt" rows="2" maxlength="4000" placeholder="Create a 120 × 40 × 6 mm arm link…"></textarea></label><p class="fineprint">Uses Baseten. Only the three reviewed templates are supported. Unknown interfaces remain assumptions.</p></details>
-          <button type="submit" class="primary requires-project" disabled>Generate part & update budget</button>
-        </form>
-        <p id="part-details" class="muted"></p><div id="downloads" class="downloads"></div>
-        <p class="warning">Geometry validation is not engineering certification. Load, motor fit, assembly clearance, and manufacturing still need review.</p>
-        <div class="telemetry">
-          <div class="panel-heading"><span class="eyebrow">03 / TIGER DATA</span><button id="seed-telemetry" class="small-button requires-project" disabled>Add test samples</button></div>
-          <p id="telemetry-result" class="muted">No telemetry yet.</p><p class="fineprint">Demo: two battery_pct samples, 40% and 60%, labelled “frontend-demo”. These are development records, not a robot simulation.</p>
-        </div>
-      </section>
-      <section class="panel copilot">
-        <div class="panel-heading"><span class="eyebrow">04 / DESIGN COPILOT</span><span class="badge">FORGE</span></div>
-        <h2>A voice for your design.</h2><p class="muted">Baseten reasons over the project. ElevenLabs handles speech.</p>
-        <div id="conversation" class="conversation" role="log" aria-label="Forge conversation"><p class="empty-chat">Ask about your budget, a part, or the recorded test measurements.</p></div>
-        <audio id="speech" controls hidden aria-label="Play Forge's response"></audio>
-        <p id="transcript" class="fineprint"></p>
-        <p class="fineprint">Speech and transcription can misread numbers. Use the deterministic BOM and budget figures as the source of truth.</p>
-        <form id="voice-form"><label>Your question<textarea id="message" rows="3" maxlength="4000" required placeholder="Why is this design over budget?"></textarea></label><label class="check"><input id="speak" type="checkbox" checked> Generate speech with ElevenLabs</label><button type="submit" class="primary requires-project" disabled>Ask Forge</button></form>
-        <details class="microphone"><summary>Use your microphone instead</summary><label class="check"><input id="mic-consent" type="checkbox"> I consent to recording and sending my speech to ElevenLabs for transcription.</label><button id="record" class="secondary requires-project" disabled>Record up to 15 seconds</button><p class="fineprint">Only starts after a click and browser permission. Stop to send. Unchecking consent discards the recording. Audio is not saved by this app; vendor retention follows account policies.</p></details>
-        <section class="pacing"><span class="eyebrow">PRESAGE / INTERFACE PACING</span><p class="muted">Camera off. Native calibration is not connected to this frontend skeleton.</p><label class="check"><input id="guided" type="checkbox" disabled> Preview guided pacing manually (not a measurement)</label><p id="pacing-result" class="fineprint">Standard explanations · speech at 1×</p><p class="fineprint">This preview sends a synthetic preference to the adaptive-interface API. It does not infer stress, emotion, or mental focus.</p></section>
-        <div id="proposal" hidden><h3>CAD proposal — confirmation required</h3><pre id="proposal-detail"></pre><button id="confirm-proposal" class="secondary requires-project">Confirm & generate proposed part</button></div>
-      </section>
+<a class="skip" href="#main">Skip to content</a>
+<div class="page">
+  <nav class="nav">
+    <a class="brand" href="/" aria-label="Argus Labs home"><img class="logo" src="/ui/assets/logo.svg?v=2" alt="" width="26" height="26">Argus Labs<span>AI robot design workspace</span></a>
+    <div class="nav-links">
+      <button id="new-robot" class="link-button" hidden>+ New robot</button>
+      <a href="/docs" target="_blank" rel="noopener">API ↗</a>
     </div>
-    <footer><span>ROBOFORGE / HACK KNIGHT PROTOTYPE</span><a href="/docs" target="_blank" rel="noopener">API reference ↗</a><span>Local only · no hardware control</span></footer>
+  </nav>
+
+  <section id="voice-bar" class="voice-bar" aria-label="Live voice conversation with Forge">
+    <button id="live-toggle" class="live-button" type="button" aria-pressed="false" data-static="1" title="Talk to Forge. Your mic audio streams to ElevenLabs only while the conversation is on; press again to end.">
+      <span class="orb" aria-hidden="true"><span id="live-orb"></span></span>
+      <span class="live-button-text visually-hidden"><b id="live-label">Talk to Forge</b><small id="live-sub">Hands-free voice conversation</small></span>
+    </button>
+    <div class="live-body">
+      <p id="live-status" class="live-status">Talk to Forge: “Make it cheaper”, “Set the budget to three thousand”, “Show me the battery”.</p>
+      <ol id="live-transcript" class="live-transcript" aria-live="polite" aria-label="Conversation transcript"></ol>
+    </div>
+    <div class="live-actions">
+      <button id="live-mute" class="quiet" type="button" aria-pressed="false" data-static="1" hidden>Mute mic</button>
+      <form id="live-type" class="live-type" hidden><label class="visually-hidden" for="live-text">Type to Forge</label><input id="live-text" maxlength="1000" placeholder="…or type to Forge" autocomplete="off"><button class="quiet" type="submit" data-static="1">Send</button></form>
+    </div>
+  </section>
+
+  <main id="main">
+    <!-- ============ START: describe ============ -->
+    <section id="start" class="start" aria-labelledby="start-title">
+      <div class="hero-grid">
+      <div class="hero-copy">
+      <div class="hero">
+        <span class="hero-tag"><i aria-hidden="true"></i>AI robot design workspace</span>
+        <h1 id="start-title">Describe a job.<br><span>Get a real robot.</span></h1>
+        <p class="lead">Argus picks catalog parts that fit your budget, sizes motors, battery and arm, and builds the robot as real CAD with every cost shown.</p>
+      </div>
+
+      <form id="start-form" class="brief-form">
+        <label class="visually-hidden" for="brief">Describe your robot</label>
+        <textarea id="brief" rows="4" maxlength="4000" required placeholder="e.g. A robot that picks up clothes in my apartment, carries up to 2 kg and responds to my voice."></textarea>
+        <div class="brief-row">
+          <label class="budget-field">Budget<span class="prefix">$</span><input id="budget" type="number" min="0" step="50" value="2500" required aria-label="Budget in US dollars"></label>
+          <button type="submit" class="button big">Design my robot →</button>
+        </div>
+        <div class="examples" aria-label="Examples">
+          <span class="muted">Try:</span>
+          <button type="button" class="chip" data-example="household">Household helper</button>
+          <button type="button" class="chip" data-example="delivery">Delivery rover</button>
+          <button type="button" class="chip" data-example="desk">Desk robot arm</button>
+        </div>
+      </form>
+
+      <div class="start-alt">
+        <button id="sample" class="quiet">Open the sample robot</button>
+        <label class="resume">or continue a robot from this session
+          <select id="project-select"><option value="">Choose a robot</option></select>
+        </label>
+      </div>
+      </div>
+
+      <figure id="showcase" class="showcase" aria-labelledby="sc-title">
+        <div id="showcase-stage" class="showcase-stage loading"><p class="sc-loading">Building CAD models…</p></div>
+        <div class="sc-top"><span class="sc-live"><i aria-hidden="true"></i>Live CAD</span><span id="sc-count" class="sc-count">01 / 08</span></div>
+        <figcaption class="sc-caption">
+          <span id="sc-kind" class="sc-kind">Robot types</span>
+          <h2 id="sc-title">Every job gets its own body</h2>
+          <p id="sc-blurb">Real CAD robots designed by Argus. Drag to turn one.</p>
+          <dl id="sc-specs" class="sc-specs"></dl>
+          <button id="sc-use" type="button" class="sc-use" data-static="1" hidden>Design one like this <span aria-hidden="true">→</span></button>
+        </figcaption>
+        <ol id="sc-dots" class="sc-dots" aria-label="Robot types"></ol>
+      </figure>
+      </div>
+
+      <ol class="how" aria-label="How it works">
+        <li><b>1</b><h3>Describe</h3><p>Say what it should do, how much it carries, and what you can spend.</p></li>
+        <li><b>2</b><h3>See it built</h3><p>Argus sizes motors, battery and arm, then assembles the robot in 3D.</p></li>
+        <li><b>3</b><h3>Build it</h3><p>Check every part and price, then follow the print list, wiring table and step-by-step assembly.</p></li>
+      </ol>
+    </section>
+
+    <!-- ============ WORKSPACE ============ -->
+    <section id="workspace" class="workspace" hidden aria-labelledby="project-title">
+      <ol class="stepper" aria-label="Progress">
+        <li class="done"><b>1</b>Describe</li>
+        <li class="current"><b>2</b>Build & review</li>
+        <li><b>3</b>Assemble</li>
+      </ol>
+
+      <header class="ws-header">
+        <div>
+          <span class="eyebrow" id="robot-type">Robot</span>
+          <h1 id="project-title">Your robot</h1>
+        </div>
+        <span id="revision" class="badge">Revision 1</span>
+      </header>
+      <div class="ws-grid">
+        <!-- 3D stage -->
+        <article class="card stage-card" aria-label="3D view">
+          <div class="card-heading">
+            <div class="toggle" role="group" aria-label="View">
+              <button id="view-robot" class="quiet" aria-pressed="true">Whole robot</button>
+              <button id="view-part" class="quiet" aria-pressed="false" disabled>Custom part</button>
+            </div>
+            <span id="geometry-state" class="badge">Layout preview</span>
+          </div>
+          <div id="stage" class="stage"><p class="placeholder">Your robot will appear here.</p></div>
+          <div class="stage-foot">
+            <dl class="facts">
+              <div><dt>Wheels</dt><dd id="fact-wheels">—</dd></div>
+              <div><dt>Arm joints</dt><dd id="fact-joints">—</dd></div>
+              <div><dt>Height</dt><dd id="fact-height">—</dd></div>
+              <div><dt>Arm reach</dt><dd id="fact-reach">—</dd></div>
+              <div><dt>Est. mass</dt><dd id="fact-mass">—</dd></div>
+            </dl>
+            <p id="selection" class="muted">Click any part in the 3D view or the list to see what it is.</p>
+          </div>
+          <section id="inspector" class="inspector" hidden aria-label="Selected part">
+            <header class="insp-head">
+              <span class="insp-dot" aria-hidden="true"></span>
+              <div class="insp-title"><span id="insp-kind" class="insp-kind">Part</span><h2 id="insp-name">—</h2><small id="insp-meta"></small></div>
+              <div class="insp-price"><b id="insp-price">—</b><small id="insp-unit"></small></div>
+              <button id="insp-close" class="insp-close" type="button" aria-label="Close part panel" data-static="1">×</button>
+            </header>
+            <figure id="insp-blueprint" class="blueprint" hidden>
+              <div id="blueprint-sheet" class="blueprint-sheet" role="img" aria-label="Blueprint of the selected part"></div>
+              <figcaption id="blueprint-caption"></figcaption>
+            </figure>
+            <div class="insp-about">
+              <h3 class="insp-sub">What it does</h3>
+              <p id="insp-does"></p>
+              <p id="insp-job" class="insp-job" hidden></p>
+              <div id="insp-why-box" hidden><h3 class="insp-sub">Why this one</h3><p id="insp-why"></p></div>
+            </div>
+            <div class="insp-grid">
+              <div>
+                <h3 class="insp-sub">Specs</h3>
+                <dl id="insp-specs" class="insp-specs"></dl>
+                <div id="insp-load" class="insp-load" hidden>
+                  <div class="insp-load-head"><span id="insp-load-label"></span><b id="insp-load-value"></b></div>
+                  <div class="gauge" aria-hidden="true"><span id="insp-load-bar"></span></div>
+                  <small id="insp-load-note"></small>
+                </div>
+              </div>
+              <div>
+                <h3 class="insp-sub" id="insp-holds-title">Holds</h3>
+                <ul id="insp-holds" class="insp-chips"></ul>
+                <p id="insp-carries" class="insp-carries" hidden></p>
+                <div id="insp-mounted-box"><h3 class="insp-sub">Mounted on</h3><ul id="insp-mounted" class="insp-chips"></ul></div>
+              </div>
+            </div>
+            <div id="insp-swap" class="insp-swap">
+              <h3 class="insp-sub">Swap for</h3>
+              <ul id="insp-alts" class="insp-alts"></ul>
+            </div>
+          </section>
+        </article>
+
+        <!-- Right column -->
+        <div class="side">
+          <article class="card" aria-labelledby="budget-title">
+            <div class="card-heading"><span class="eyebrow" id="budget-title">Cost</span><span id="budget-chip" class="badge">—</span></div>
+            <div class="card-body">
+              <div class="lever">
+                <div class="lever-head"><label for="budget-slider">Your budget</label><output id="budget-out" for="budget-slider">—</output></div>
+                <input id="budget-slider" type="range" min="300" max="8000" step="50" value="2500" aria-describedby="lever-help">
+                <div class="lever-scale" aria-hidden="true"><span>$300</span><span id="slider-max">$8,000</span></div>
+                <p id="lever-help" class="muted">Slide to change the budget. Argus re-picks parts to get the best robot for that money.</p>
+                <div class="tier-row"><span id="tier-badge" class="badge">—</span><div class="meter perf" aria-hidden="true"><span id="perf-bar"></span></div><span id="perf-value" class="perf-value">—</span></div>
+                <ul id="upgrade-list" class="upgrade-list" aria-label="What this budget buys"></ul>
+                <p id="edited-note" class="edited-note" hidden>You edited parts by hand. Moving the budget re-picks every part.</p>
+                <p id="next-upgrade" class="next-upgrade" hidden><span id="next-upgrade-text"></span> <button id="next-upgrade-btn" class="link-button requires-project" type="button">Raise budget</button></p>
+              </div>
+              <p class="big-number" id="budget-headline">—</p>
+              <div class="meter" aria-hidden="true"><span id="budget-bar"></span></div>
+              <dl class="money">
+                <div><dt>Parts</dt><dd id="bom-total">—</dd></div>
+                <div><dt>+ Contingency</dt><dd id="contingency">—</dd></div>
+                <div><dt>Projected</dt><dd id="projected">—</dd></div>
+                <div><dt>Your budget</dt><dd id="budget-value">—</dd></div>
+              </dl>
+              <button id="cheaper" class="button requires-project" disabled>Make it cheaper</button>
+              <p id="cheaper-result" class="muted" aria-live="polite"></p>
+            </div>
+          </article>
+
+          <article class="card" aria-labelledby="parts-title">
+            <div class="card-heading"><span class="eyebrow" id="parts-title">Parts list</span><span id="parts-count" class="badge">0 parts</span></div>
+            <div class="card-body">
+              <ul id="bom-lines" class="parts" aria-label="Parts in this robot"></ul>
+              <div class="buy-box"><button id="find-buy" class="quiet requires-project" type="button" disabled>Find where to buy</button><p id="buy-summary" class="muted" aria-live="polite"></p></div>
+              <div id="warnings" class="warnings" hidden></div>
+              <details id="decisions-box"><summary>Why these parts?</summary><ul id="decisions" class="decisions"></ul></details>
+              <p class="muted">Prices are catalog estimates and exclude tax, shipping and labour.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div class="ws-row">
+        <article class="card" aria-labelledby="brief-title">
+          <div class="card-heading"><span class="eyebrow" id="brief-title">Your brief</span><span id="architect-state" class="badge">Argus</span></div>
+          <div class="card-body">
+            <div id="architect-note" class="architect-note" hidden>
+              <p id="architect-reply"></p>
+              <form id="architect-form" class="inline-form">
+                <label class="visually-hidden" for="architect-answer">Your answer</label>
+                <input id="architect-answer" maxlength="2000" placeholder="Type your answer…" required>
+                <button type="submit" class="quiet requires-project" disabled>Answer</button>
+              </form>
+            </div>
+            <form id="requirements-form" class="form">
+              <label>What it should do<textarea id="req-description" rows="3" maxlength="4000"></textarea></label>
+              <div class="fields">
+                <label>Carries up to · kg<input id="req-payload" type="number" min="0" max="50" step="0.1"></label>
+                <label>Moves by<select id="req-mobility"><option value="wheeled">Wheels</option><option value="fixed">Stays in place</option></select></label>
+                <label>Runtime · hours<input id="req-runtime" type="number" min="0.5" max="12" step="0.5"></label>
+                <label>Budget · USD<input id="req-budget" type="number" min="0" step="50"></label>
+              </div>
+              <button type="submit" class="button requires-project" disabled>Rebuild robot</button>
+            </form>
+          </div>
+        </article>
+
+        <article class="card" aria-labelledby="part-title">
+          <div class="card-heading"><span class="eyebrow" id="part-title">Add a custom 3D part</span><span class="badge">CAD</span></div>
+          <div class="card-body">
+            <p class="muted">Build a real, printable part. It appears in the robot and you can download STEP, STL or GLB.</p>
+            <form id="cad-form" class="form">
+              <fieldset class="choices"><legend>What part?</legend>
+                <label class="choice"><input type="radio" name="part-kind" value="arm_link" checked><span><b>Arm link</b><small>The arm's bones</small></span></label>
+                <label class="choice"><input type="radio" name="part-kind" value="chassis_plate"><span><b>Deck plate</b><small>Top of the base</small></span></label>
+                <label class="choice"><input type="radio" name="part-kind" value="motor_bracket"><span><b>Motor bracket</b><small>Holds wheel motors</small></span></label>
+              </fieldset>
+              <fieldset class="choices sizes"><legend>Size</legend>
+                <label class="choice"><input type="radio" name="part-size" value="S"><span><b>Small</b></span></label>
+                <label class="choice"><input type="radio" name="part-size" value="M" checked><span><b>Medium</b></span></label>
+                <label class="choice"><input type="radio" name="part-size" value="L"><span><b>Large</b></span></label>
+              </fieldset>
+              <details><summary>Exact sizes and price</summary>
+                <div class="fields three"><label>Length · mm<input id="length" type="number" min="10" max="1000" step="1" required></label><label>Width · mm<input id="width" type="number" min="10" max="1000" step="1" required></label><label>Thickness · mm<input id="thickness" type="number" min="1" max="50" step="1" required></label></div>
+                <label>Making cost estimate · USD<input id="part-price" type="number" min="0" step="0.01" required></label>
+                <label>Or describe it to the AI (optional)<textarea id="cad-prompt" rows="2" maxlength="4000" placeholder="A 150 mm arm link, 40 mm wide…"></textarea></label>
+              </details>
+              <button type="submit" class="button requires-project" disabled>Build part</button>
+            </form>
+            <p id="part-details" class="muted" aria-live="polite"></p>
+          </div>
+        </article>
+
+      </div>
+
+      <article class="card downloads-card" aria-labelledby="downloads-title">
+        <div class="card-heading"><span class="eyebrow" id="downloads-title">Download</span><button id="csv" class="quiet requires-project" disabled>Parts list (CSV)</button></div>
+        <div class="card-body"><div id="downloads" class="downloads"><p class="muted">Build a custom part to download its CAD files.</p></div></div>
+      </article>
+
+      <div class="next-row">
+        <p><b>Happy with the design?</b> <span class="muted">Next: print the parts, wire it up and put it together step by step.</span></p>
+        <button id="to-assemble" class="button big requires-project" type="button" disabled>Next: how to assemble →</button>
+      </div>
+    </section>
+
+    <!-- ============ ASSEMBLE ============ -->
+    <section id="assemble" class="workspace" hidden aria-labelledby="asm-title">
+      <ol class="stepper" aria-label="Progress">
+        <li class="done"><b>1</b>Describe</li>
+        <li class="done"><b>2</b>Build & review</li>
+        <li class="current"><b>3</b>Assemble</li>
+      </ol>
+      <header class="ws-header">
+        <div>
+          <span class="eyebrow" id="asm-type">Robot</span>
+          <h1 id="asm-title">How to build it</h1>
+        </div>
+        <button id="back-to-design" class="quiet" type="button" data-static="1">← Back to the design</button>
+      </header>
+      <div class="asm-grid">
+        <article class="card stage-card" aria-label="Step-by-step 3D view">
+          <div class="card-heading"><span class="eyebrow" id="asm-count">Step 1</span><span id="asm-picked" class="badge">Click a part to name it</span></div>
+          <div id="asm-stage" class="stage"><p class="placeholder">Loading the robot…</p></div>
+          <div class="asm-current" aria-live="polite">
+            <h2 id="asm-current-title">—</h2>
+            <ul id="asm-current-items"></ul>
+            <p id="asm-current-parts" class="muted"></p>
+          </div>
+          <div class="asm-nav">
+            <button id="asm-prev" class="quiet" type="button" data-static="1">← Previous</button>
+            <button id="asm-next" class="button" type="button" data-static="1">Next step →</button>
+          </div>
+        </article>
+        <article class="card" aria-labelledby="asm-steps-title">
+          <div class="card-heading"><span class="eyebrow" id="asm-steps-title">Build steps</span><span id="asm-step-count" class="badge">—</span></div>
+          <div class="card-body"><ol id="asm-steps" class="asm-steps"></ol></div>
+        </article>
+      </div>
+
+      <article class="card" aria-labelledby="prints-title">
+        <div class="card-heading"><span class="eyebrow" id="prints-title">3D-print these parts</span><span id="prints-count" class="badge">—</span></div>
+        <div class="card-body">
+          <ul id="asm-prints" class="prints"></ul>
+          <p id="prints-bed" class="muted"></p>
+        </div>
+      </article>
+
+      <article class="card" aria-labelledby="wiring-title">
+        <div class="card-heading"><span class="eyebrow" id="wiring-title">Wiring · which wire goes where</span><span id="wiring-source" class="badge">—</span></div>
+        <div class="card-body">
+          <p id="wiring-summary" class="muted"></p>
+          <div class="table-wrap">
+            <table class="wiring">
+              <thead><tr><th scope="col">From → to</th><th scope="col">Voltage</th><th scope="col">Current</th><th scope="col">Wire</th><th scope="col">Connector</th><th scope="col">Fuse</th></tr></thead>
+              <tbody id="wiring-rows"></tbody>
+            </table>
+          </div>
+          <ul id="wiring-notes" class="asm-notes"></ul>
+        </div>
+      </article>
+
+      <div class="ws-row">
+        <article class="card" aria-labelledby="extras-title">
+          <div class="card-heading"><span class="eyebrow" id="extras-title">Electrical parts for the harness</span></div>
+          <div class="card-body"><p class="muted">The wiring kit in the parts list needs to include these.</p><ul id="asm-extras" class="asm-list"></ul></div>
+        </article>
+        <article class="card" aria-labelledby="tools-title">
+          <div class="card-heading"><span class="eyebrow" id="tools-title">Tools you need</span></div>
+          <div class="card-body"><ul id="asm-tools" class="asm-list"></ul></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============ ADVANCED ============ -->
+    <details class="advanced">
+      <summary>Advanced · system checks and integrations</summary>
+      <div class="advanced-body">
+        <div class="services" aria-label="Integration status"><span id="llm-status">AI · checking</span><span id="voice-status">ElevenLabs · checking</span><span id="tiger-status">Tiger · checking</span><span id="presage-status">Presage · camera off</span></div>
+        <div class="adv-grid">
+          <section>
+            <h3>Guided end-to-end check</h3>
+            <p class="muted">Creates the sample robot, builds an arm link, writes two test samples to Tiger, asks for a spoken summary and transcribes it. Uses small Baseten and ElevenLabs credits.</p>
+            <button id="demo" class="quiet">Run guided E2E demo</button>
+            <ol class="steps" aria-label="End-to-end progress">
+              <li data-step="0"><b>01</b><span>Project</span><small>Not run</small></li>
+              <li data-step="1"><b>02</b><span>CAD + budget</span><small>Not run</small></li>
+              <li data-step="2"><b>03</b><span>Tiger telemetry</span><small>Not run</small></li>
+              <li data-step="3"><b>04</b><span>Reply + speech</span><small>Not run</small></li>
+              <li data-step="4"><b>05</b><span>Transcription</span><small>Not run</small></li>
+            </ol>
+          </section>
+          <section>
+            <h3>Tiger Data telemetry</h3>
+            <p id="telemetry-result" class="muted">No telemetry yet.</p>
+            <button id="seed-telemetry" class="quiet requires-project" disabled>Add two test samples</button>
+          </section>
+          <section>
+            <h3>Presage interface pacing</h3>
+            <p id="pacing-result" class="muted">Standard explanations · speech at 1×</p>
+            <label class="check"><input id="guided" type="checkbox" disabled> Preview slower, guided explanations (manual, not a measurement)</label>
+          </section>
+        </div>
+      </div>
+    </details>
   </main>
+
+  <footer class="footer"><span>Argus Labs · local prototype · no hardware control</span><span>3D layout is illustrative. Sizing and prices are estimates; verify before building.</span></footer>
+</div>
+<div id="status" class="toast" role="status" aria-live="polite">Connecting…</div>
 </body>
 </html>

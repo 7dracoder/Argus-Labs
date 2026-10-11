@@ -10,7 +10,14 @@ from fastapi.responses import FileResponse
 from typing import Literal
 from pydantic import BaseModel, Field
 
+from roboforge import parts
 from roboforge.agents import AGENTS
+from roboforge.archetypes import ARCHETYPES
+from roboforge.assembly import build_assembly
+from roboforge.concept import Concept, ConceptError, design_concept
+from roboforge.research import find_references
+from roboforge.shopping import where_to_buy
+from roboforge.design import BriefError, brief_problem, configure
 from roboforge.catalog import CATALOG, DEMO_BUILD, make_component
 from roboforge.finance import TCOInput, build_bom, check_budget, estimate_tco, optimize_cost
 from roboforge.llm import LLMResponseError, LLMUnavailable, llm_status
@@ -18,10 +25,13 @@ from roboforge.voice import VoiceRequest, profile as voice_profile, respond as v
 from roboforge.models import ChatMessage, Component, Requirements, RobotProject, ValidationRecord
 from roboforge.store import store
 from roboforge.integrations.elevenlabs import ElevenLabsUnavailable, elevenlabs
+from roboforge.integrations.voice_agent import VoiceAgentUnavailable, voice_agent as live_agent
 from roboforge.integrations.presage import PresageInteractionSignal, recommended_interface
 from roboforge.integrations.tiger import TelemetryEvent, TigerUnavailable, tiger
-from roboforge.cad.engine import ARTIFACTS, CADBuildFailed, CADUnavailable, root_directory, runtime_status
+from roboforge.cad.engine import (ARTIFACTS, ROBOT_ARTIFACTS, CADBuildFailed, CADUnavailable, build,
+                                  build_robot_model, root_directory, runtime_status)
 from roboforge.cad.spec import MechanicalRequest
+from roboforge.guide import assembly_guide, print_spec
 
 router = APIRouter()
 
@@ -48,6 +58,9 @@ class AddComponent(BaseModel):
 
 @router.post("/projects", response_model=RobotProject, status_code=201)
 def create_project(body: CreateProject):
+    problem = body.requirements.description and brief_problem(body.requirements)
+    if problem:
+        raise HTTPException(422, problem)
     return store.create(RobotProject(name=body.name, requirements=body.requirements))
 
 
@@ -110,6 +123,249 @@ def remove_component(project_id: str, component_id: str):
     return store.save_revision(project)
 
 
+@router.get("/projects/{project_id}/components/{component_id}/info")
+def component_info(project_id: str, component_id: str, revision: int | None = None):
+    """Part inspector: specs, what it holds or powers, what it's mounted on, load vs rating, alternatives."""
+    try:
+        return parts.info(_get(project_id, revision), component_id)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@router.post("/projects/{project_id}/components/{component_id}/edit")
+def edit_component(project_id: str, component_id: str, body: parts.PartEdit):
+    """Change one part from plain words ("cheaper", "stronger", "use the Maxon", "remove it") or an explicit swap."""
+    if not (body.instruction or body.catalog_id or body.remove):
+        raise HTTPException(422, "Say what to change, pick a replacement, or remove the part.")
+    try:
+        project, outcome = parts.edit(_get(project_id), component_id, body)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    saved = store.save_revision(project) if outcome["changed"] else project
+    return {**outcome, "project": saved}
+
+
+class AutoDesignRequest(BaseModel):
+    requirements: Requirements | None = None  # optional edits applied before designing
+
+
+def _brief_key(req: Requirements) -> str:
+    # Description only: the requirements agent later restates it as `tasks`, which must not re-roll the robot.
+    return req.description.strip().lower()
+
+
+def _concept(project: RobotProject) -> tuple[Concept | None, dict | None]:
+    """The AI concept for this brief and the web research behind it: reused across budget changes,
+    re-made when the brief changes. Without a text model (or for a chosen robot type) the keyword
+    body plans are used instead."""
+    req = project.requirements
+    if req.robot_type or not req.description.strip() or brief_problem(req):
+        return None, None
+    arch = project.architecture or {}
+    if arch.get("concept") and arch.get("concept_brief") == _brief_key(req):
+        return Concept.model_validate(arch["concept"]), arch.get("research")
+    research = find_references(req.description)
+    try:
+        return design_concept(req, research), research.model_dump()
+    except ConceptError:
+        raise
+    except Exception:  # model unavailable, slow or malformed: fall back to the deterministic plans
+        return None, None
+
+
+@router.post("/projects/{project_id}/design/auto")
+def auto_design(project_id: str, body: AutoDesignRequest | None = None):
+    """Pick a costed catalog build from the requirements. Keeps generated CAD parts."""
+    project = _get(project_id)
+    if body and body.requirements:
+        project.requirements = body.requirements
+    try:
+        concept, research = _concept(project)
+        result = configure(project.requirements, concept)
+    except (BriefError, ConceptError) as error:
+        raise HTTPException(422, str(error)) from error
+    # Keep only parts the user generated as CAD (catalog "printed" parts are re-picked).
+    cad_ids = {part.get("component_id") for part in project.manufacturing.get("cad_parts", {}).values()}
+    generated = [c for c in project.components if c.id in cad_ids]
+    project.components = result.components + generated
+    project.requirements = result.requirements
+    concept_cache = {"concept": result.concept, "research": research if result.concept else None,
+                     "concept_brief": _brief_key(project.requirements) if result.concept else None}
+    project.architecture.update({
+        **({} if project.requirements.robot_type else concept_cache),  # a forced type keeps the AI concept for later
+        "type": result.robot_type,
+        "archetype": result.archetype,
+        "decisions": [d.model_dump() for d in result.decisions],
+        "warnings": result.warnings,
+        "performance": result.performance,
+        "tier": result.tier,
+        "upgrades": result.upgrades,
+        "next_upgrade": result.next_upgrade,
+        "edited": False,
+        "edit_warnings": [],
+    })
+    project.validation.append(ValidationRecord(
+        check="auto_design_sizing", status="pending",
+        detail="Torque, energy and load sizing are screening estimates; verify before building."))
+    saved = store.save_revision(project)
+    return {"project": saved, "decisions": result.decisions, "warnings": result.warnings,
+            "assumptions": result.assumptions, "performance": result.performance, "tier": result.tier,
+            "upgrades": result.upgrades, "next_upgrade": result.next_upgrade}
+
+
+@router.get("/projects/{project_id}/assembly")
+def get_assembly(project_id: str, revision: int | None = None):
+    """Whole-robot 3D layout (illustrative) for the viewer."""
+    return build_assembly(_get(project_id, revision))
+
+
+@router.get("/projects/{project_id}/assembly-guide")
+def get_assembly_guide(project_id: str):
+    """Build steps, wiring table and printable parts for the current revision."""
+    return assembly_guide(_get(project_id))
+
+
+@router.get("/projects/{project_id}/prints/{index}/{format}")
+def download_print(project_id: str, index: int, format: Literal["stl", "step"]):
+    """Build (or reuse) one printable part from the guide and download it."""
+    project = _get(project_id)
+    spec = print_spec(project, index)
+    if spec is None:
+        raise HTTPException(404, "No printable part at this position.")
+    try:
+        result = build(spec)
+    except CADUnavailable as error:
+        raise HTTPException(503, str(error)) from error
+    except CADBuildFailed as error:
+        raise HTTPException(502, str(error)) from error
+    import re
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", spec.name)[:40].strip("_") or "part"
+    media = {"stl": "model/stl", "step": "application/step"}
+    return FileResponse(root_directory() / result["design_id"] / ARTIFACTS[format], media_type=media[format],
+                        filename=f"{stem}.{format}")
+
+
+@router.get("/projects/{project_id}/robot/{format}")
+def get_robot_cad(project_id: str, format: Literal["glb", "step", "report"], revision: int | None = None):
+    """Whole-robot CAD (cadgen/build123d): GLB for the viewer, STEP for CAD tools."""
+    project = _get(project_id, revision)
+    nodes = [n.model_dump(exclude={"glb", "label", "color", "shape"}) for n in build_assembly(project).nodes]
+    try:
+        directory = build_robot_model(nodes)
+    except CADUnavailable as error:
+        raise HTTPException(503, str(error)) from error
+    except CADBuildFailed as error:
+        raise HTTPException(502, str(error)) from error
+    media = {"glb": "model/gltf-binary", "step": "application/step", "report": "application/json"}
+    import re
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", project.name)[:40].strip("_") or "robot"
+    name = f"{stem}_rev{project.revision}.{'json' if format == 'report' else format}"
+    return FileResponse(directory / ROBOT_ARTIFACTS[format], media_type=media[format], filename=name)
+
+
+def robot_summary(project: RobotProject) -> dict:
+    """Compact, voice-friendly snapshot of the design (used by the live voice agent's tools)."""
+    bom = build_bom(project.components)
+    budget = check_budget(bom, project.requirements.budget_usd, project.requirements.contingency_pct)
+    arch = project.architecture or {}
+    assembly = build_assembly(project)
+    return {
+        "name": project.name, "revision": project.revision, "type": assembly.robot_type,
+        "tier": arch.get("tier"), "performance_pct": arch.get("performance"),
+        "budget_usd": budget.budget_usd, "parts_usd": budget.bom_total_usd,
+        "projected_with_contingency_usd": budget.projected_total_usd, "remaining_usd": budget.remaining_usd,
+        "status": budget.status, "mass_kg": bom.total_mass_kg, "arm_joints": assembly.summary["arm_joints"],
+        "wheels": assembly.summary["wheels"],
+        "requirements": {k: getattr(project.requirements, k) for k in
+                         ("description", "payload_kg", "mobility", "runtime_hours")},
+        "parts": [{"name": line.name, "quantity": line.quantity, "total_usd": line.line_total_usd}
+                  for line in bom.lines],
+        "warnings": [*arch.get("warnings", []), *arch.get("edit_warnings", [])],
+        "next_upgrade": arch.get("next_upgrade"),
+        "note": "Prices are catalog estimates. Sizing and fit are unverified.",
+    }
+
+
+@router.get("/projects/{project_id}/summary")
+def get_summary(project_id: str):
+    return robot_summary(_get(project_id))
+
+
+# ---- Start-page showcase: one real CAD robot per body plan ---------------------
+
+SHOWCASE = (
+    ("delivery_rover", "A delivery rover that carries 5 kg packages between rooms in our office.", 1500),
+    ("mobile_manipulator", "A household robot that picks up clothes in my apartment, carries 2 kg and responds to my voice.", 2500),
+    ("tracked_explorer", "Outdoor garden inspection on rough terrain.", 1800),
+    ("security_patrol", "A security patrol robot for my office at night.", 2500),
+    ("warehouse_amr", "A warehouse robot that lifts 60 kg totes and shelves.", 6000),
+    ("telepresence", "A companion robot that reads stories to my kids and makes video calls.", 1800),
+    ("cleaning_robot", "A vacuum robot that cleans the floors of my apartment.", 1200),
+    ("stationary_arm", "A desk robot arm that sorts small parts into bins, carrying up to 0.5 kg.", 900),
+)
+
+
+def _showcase_project(key: str) -> RobotProject:
+    brief, budget = next((b, u) for k, b, u in SHOWCASE if k == key)
+    result = configure(Requirements(description=brief, budget_usd=budget, robot_type=key))
+    for i, component in enumerate(result.components):
+        component.id = f"{key[:4]}{i}"  # stable ids keep the CAD cache warm across restarts
+    return RobotProject(id=f"showcase-{key}", name=result.robot_type, requirements=result.requirements,
+                        components=result.components,
+                        architecture={"archetype": result.archetype, "type": result.robot_type})
+
+
+@router.get("/showcase")
+def showcase():
+    items = []
+    for key, brief, budget in SHOWCASE:
+        project = _showcase_project(key)
+        assembly = build_assembly(project)
+        bom = build_bom(project.components)
+        s = assembly.summary
+        items.append({"key": key, "label": assembly.robot_type, "blurb": ARCHETYPES[key].blurb, "brief": brief,
+                      "budget_usd": budget, "parts": sum(c.quantity for c in project.components),
+                      "cost_usd": bom.total_usd, "mass_kg": bom.total_mass_kg, "height_m": s["height_m"],
+                      "wheels": s["wheels"], "arm_joints": s["arm_joints"],
+                      "glb": f"/showcase/{key}.glb"})
+    return items
+
+
+@router.get("/showcase/{key}.glb")
+def showcase_model(key: str):
+    if key not in {k for k, _, _ in SHOWCASE}:
+        raise HTTPException(404, "Unknown robot type")
+    nodes = [n.model_dump(exclude={"glb", "label", "color", "shape"}) for n in build_assembly(_showcase_project(key)).nodes]
+    try:
+        directory = build_robot_model(nodes)
+    except CADUnavailable as error:
+        raise HTTPException(503, str(error)) from error
+    except CADBuildFailed as error:
+        raise HTTPException(502, str(error)) from error
+    return FileResponse(directory / ROBOT_ARTIFACTS["glb"], media_type="model/gltf-binary",
+                        headers={"Cache-Control": "public, max-age=3600"})
+
+
+class LiveSessionRequest(BaseModel):
+    project_id: str | None = Field(default=None, max_length=64)
+
+
+@router.post("/voice/live/session")
+def live_voice_session(body: LiveSessionRequest):
+    """Short-lived signed URL for a real-time voice conversation with Forge (ElevenLabs Agents)."""
+    context = "No robot yet."
+    if body.project_id:
+        s = robot_summary(_get(body.project_id))
+        context = (f"{s['name']} ({s['type']}), {s['tier'] or 'unscored'} tier, budget ${s['budget_usd'] or 0:,.0f}, "
+                   f"projected ${s['projected_with_contingency_usd']:,.0f} including contingency, "
+                   f"{len(s['parts'])} part lines.")
+    try:
+        session = live_agent.signed_url()
+    except VoiceAgentUnavailable as error:
+        raise HTTPException(503, str(error)) from error
+    return {**session, "robot_context": context}
+
+
 @router.get("/catalog")
 def get_catalog(kind: str | None = None):
     return {cid: item for cid, item in CATALOG.items() if kind is None or item["kind"] == kind}
@@ -137,6 +393,12 @@ def get_bom(project_id: str, revision: int | None = None):
 def get_budget(project_id: str, revision: int | None = None):
     p = _get(project_id, revision)
     return check_budget(build_bom(p.components), p.requirements.budget_usd, p.requirements.contingency_pct)
+
+
+@router.post("/projects/{project_id}/finance/where-to-buy")
+def buy_links(project_id: str):
+    """Store product links for every bought part, grouped at one store where it isn't much dearer."""
+    return where_to_buy(_get(project_id))
 
 
 @router.post("/projects/{project_id}/finance/optimize")
@@ -189,6 +451,7 @@ class ChatRequest(BaseModel):
 def architect_chat(project_id: str, body: ChatRequest):
     """One turn of the adaptive requirements interview using the configured LLM."""
     project = _get(project_id)
+    before = project.requirements.model_dump()
     try:
         out = AGENTS["architect"].run(project, message=body.message)
     except LLMUnavailable as e:
@@ -196,8 +459,12 @@ def architect_chat(project_id: str, body: ChatRequest):
     except Exception as e:  # upstream LLM/network errors
         raise HTTPException(502, f"Architect model call failed: {type(e).__name__}")
 
-    project.requirements = out["requirements"]
-    if out["robot_category"]:
+    # The model call can take seconds; apply the result to the latest revision so
+    # concurrent edits (rebuilds, CAD parts) aren't overwritten.
+    project = _get(project_id)
+    changed = {k: v for k, v in out["requirements"].model_dump().items() if before.get(k) != v}
+    project.requirements = project.requirements.model_copy(update=changed)  # only what the Architect changed
+    if out["robot_category"] and not project.architecture.get("archetype"):  # don't relabel a designed robot
         project.architecture["type"] = out["robot_category"]
     project.conversation += [ChatMessage(role="user", content=body.message),
                              ChatMessage(role="architect", content=out["turn"].reply)]
@@ -236,6 +503,7 @@ def generate_mechanical_part(project_id: str, body: MechanicalRequest):
         raise HTTPException(422, "Invalid part proposal or base design.") from error
     except Exception as error:
         raise HTTPException(502, "Mechanical generation failed.") from error
+    project = _get(project_id)  # builds take seconds; attach to the latest revision
     parts = project.manufacturing.setdefault("cad_parts", {})
     base = parts.get(body.base_design_id, {}) if body.base_design_id else parts.get(result["design_id"], {})
     result["component_id"] = base.get("component_id")

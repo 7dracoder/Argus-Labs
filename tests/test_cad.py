@@ -25,6 +25,13 @@ class SpecChecks(unittest.TestCase):
             with self.subTest(overrides=overrides), self.assertRaises(ValidationError):
                 PartSpec(**{"kind": "chassis_plate", **overrides})
 
+    def test_cover_needs_room_inside_and_flange_material(self):
+        for overrides in ({"length_mm": 24, "thickness_mm": 3}, {"height_mm": 10, "thickness_mm": 4},
+                          {"hole_diameter_mm": 6, "hole_inset_mm": 3.5}, {"length_mm": 60, "vent_slots": 12}):
+            with self.subTest(overrides=overrides), self.assertRaises(ValidationError):
+                PartSpec(**{"kind": "cover", "length_mm": 120, "width_mm": 90, "thickness_mm": 2.4,
+                            "hole_diameter_mm": 3.4, "hole_inset_mm": 4, **overrides})
+
     def test_request_requires_one_input(self):
         with self.assertRaises(ValidationError):
             MechanicalRequest()
@@ -101,6 +108,23 @@ class CADIntegration(unittest.TestCase):
             self.assertEqual(glb.content[:4], b"glTF")
             before = client.get(first["downloads"]["report"].replace(f"revision={first['revision']}", "revision=1"))
             self.assertEqual(before.status_code, 404)
+
+    def test_cover_geometry_and_print_download(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"ROBOFORGE_CAD_ROOT": directory}):
+            spec = PartSpec(kind="cover", length_mm=120, width_mm=95, height_mm=45, thickness_mm=2.4,
+                            hole_diameter_mm=3.4, hole_inset_mm=4, vent_slots=6)
+            geometry = build(spec)["geometry"]
+            self.assertTrue(all(geometry["checks"].values()), geometry["checks"])
+            self.assertEqual(geometry["bounds_mm"], [136, 111, 45])  # shell + 8 mm flange each side
+            client = TestClient(app)
+            project = client.post("/projects/demo").json()
+            prints = client.get(f"/projects/{project['id']}/assembly-guide").json()["prints"]
+            cover = next(p for p in prints if p["kind"] == "cover")
+            stl = client.get(f"/projects/{project['id']}/prints/{cover['index']}/stl")
+            self.assertEqual(stl.status_code, 200, stl.text)
+            self.assertGreater(len(stl.content), 1000)
+            missing = client.get(f"/projects/{project['id']}/prints/99/stl")
+            self.assertEqual(missing.status_code, 404)
 
 
 if __name__ == "__main__":

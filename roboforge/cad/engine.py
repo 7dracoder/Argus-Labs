@@ -35,7 +35,39 @@ def runtime_status() -> dict:
     except importlib.metadata.PackageNotFoundError:
         version = None
     return {"configured": version == CADGEN_VERSION, "version": version,
-            "required_version": CADGEN_VERSION, "templates": ["chassis_plate", "arm_link", "motor_bracket"]}
+            "required_version": CADGEN_VERSION, "templates": ["chassis_plate", "arm_link", "motor_bracket", "cover"]}
+
+
+ROBOT_ARTIFACTS = {"step": "STEP/robot.step", "glb": "GLB/robot.glb", "report": "report.json"}
+_robot_lock = Lock()
+
+
+def build_robot_model(nodes: list[dict]) -> Path:
+    """Build (or reuse) the whole-robot STEP/GLB for an assembly layout. Returns its directory."""
+    if not runtime_status()["configured"]:
+        raise CADUnavailable("Install the CAD runtime with: pip install -e '.[cad]'")
+    closure = b"".join((Path(__file__).parent / f).read_bytes() for f in (
+        "robot.py", "robot_worker.py", "templates.py", "spec.py"))
+    layout = json.dumps(nodes, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(CADGEN_VERSION.encode() + closure + layout.encode()).hexdigest()
+    directory = root_directory() / f"robot-{digest}"
+    with _robot_lock:
+        if all((directory / path).is_file() for path in ROBOT_ARTIFACTS.values()):
+            return directory
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "layout.json").write_text(layout, encoding="utf-8")
+        environment = os.environ.copy()
+        environment.update({"CADGEN_TELEMETRY": "0", "CADGEN_UPDATE_CHECK": "0", "CADGEN_DAEMON": "0"})
+        try:
+            completed = subprocess.run([sys.executable, "-m", "roboforge.cad.robot_worker", str(directory)],
+                                       capture_output=True, text=True, timeout=240, env=environment)
+        except subprocess.TimeoutExpired as error:
+            raise CADBuildFailed("Robot CAD build exceeded its 240-second timeout.") from error
+        if completed.returncode:
+            import logging
+            logging.getLogger(__name__).error("Robot CAD worker failed: %s", completed.stderr[-4000:])
+            raise CADBuildFailed("Robot CAD build failed. Check server logs.")
+        return directory
 
 
 def build(spec: PartSpec) -> dict:

@@ -38,7 +38,7 @@ before they appear in materialized history.
 With a blank connection URI, development uses in-memory storage and health
 reports `connected=false`. A configured-but-broken database does **not** silently
 fall back to memory. Remote connections require encryption; errors do not expose
-the connection string. Setup affects only RoboForge's named schema objects.
+the connection string. Setup affects only Argus Labs' named schema objects.
 Projects themselves still use the existing in-memory revision store; this
 integration persists telemetry, not the whole project model.
 
@@ -139,7 +139,7 @@ terms first. It connects only to the local backend in `ROBOFORGE_API_URL`, and
 Ctrl+C stops capture, destroys the SDK and resets pacing. The SDK requests only
 breathing rate; SDK telemetry, accumulated output, and LLM insights are disabled.
 Measurements stay in transient client memory; no raw metrics/video are sent to
-RoboForge or Tiger. Presage authentication/SDK processing has its own vendor
+Argus Labs or Tiger. Presage authentication/SDK processing has its own vendor
 policies, so this does not promise an entirely offline measurement pipeline.
 
 The bridge normalizes the SDK's percentage confidence (0–100) to the local

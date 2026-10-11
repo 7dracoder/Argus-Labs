@@ -19,7 +19,7 @@ if (duration !== null && (!Number.isInteger(duration) || duration < 10 || durati
 const apiKey = process.env.SMARTSPECTRA_API_KEY;
 const base = new URL(process.env.ROBOFORGE_API_URL || 'http://127.0.0.1:8000');
 if (!['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname)) {
-  throw new Error('This prototype sends coarse signals only to a local RoboForge backend.');
+  throw new Error('This prototype sends coarse signals only to a local Argus Labs backend.');
 }
 
 const require = createRequire(import.meta.url);

@@ -39,7 +39,7 @@ class ArchitectTurn(BaseModel):
     ready_for_design: bool = False
 
 
-ARCHITECT_SYSTEM = """You are the RoboForge Robot Architect. Interview the user to build an
+ARCHITECT_SYSTEM = """You are the Argus Labs Robot Architect. Interview the user to build an
 engineering specification for a robot. Each turn:
 - Merge everything the user has said into the spec fields; never drop known facts.
 - Ask exactly ONE next_question about the most important missing item

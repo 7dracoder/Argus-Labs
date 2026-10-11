@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from roboforge.cad.spec import PartSpec
+from roboforge.cad.templates import cover_features, hole_positions
 
 
 # This is fixed source. User and model values live exclusively in spec.json.
@@ -28,6 +29,18 @@ if __name__ == "__main__":
 '''
 
 
+def _cover_expectation(spec: PartSpec) -> tuple[list[float], float]:
+    """Envelope and solid volume (before screw holes) of a cover, from its dimensions alone."""
+    L, W, H, t = spec.length_mm, spec.width_mm, spec.height_mm, spec.thickness_mm
+    feat = cover_features(spec)
+    f, (nw, nh), (vw, vl) = feat["flange_mm"], feat["notch_mm"], feat["vent_mm"]
+    volume = (L * W * H - (L - 2 * t) * (W - 2 * t) * (H - t)    # open-bottom shell
+              + (L + 2 * f) * (W + 2 * f) * t - L * W * t        # flange ring outside the shell
+              - len(feat["vent_x"]) * vw * vl * t                # top vent slots
+              - nw * t * (f + nh))                               # cable notch through flange and wall
+    return [L + 2 * f, W + 2 * f, H], volume
+
+
 def inspect_step(path: Path, spec: PartSpec) -> dict:
     # Read exported bytes through the CAD kernel rather than trusting the model's return.
     from cadgen import build123d as bd
@@ -35,22 +48,23 @@ def inspect_step(path: Path, spec: PartSpec) -> dict:
     shape = bd.import_step(str(path))
     solids = shape.solids()
     bounds = shape.bounding_box().size
-    expected = [spec.length_mm, spec.width_mm,
-                spec.bracket_height_mm if spec.kind == "motor_bracket" else spec.thickness_mm]
-    measured = [bounds.X, bounds.Y, bounds.Z]
-    dims_ok = all(abs(a - b) <= 0.01 for a, b in zip(expected, measured))
     radius = spec.hole_diameter_mm / 2
     count = 2 if spec.kind == "arm_link" else 4
-    expected_volume = spec.length_mm * spec.width_mm * spec.thickness_mm
-    if spec.kind == "motor_bracket":
-        expected_volume += spec.thickness_mm * spec.width_mm * (spec.bracket_height_mm - spec.thickness_mm)
+    if spec.kind == "cover":
+        expected, expected_volume = _cover_expectation(spec)
+    else:
+        expected = [spec.length_mm, spec.width_mm,
+                    spec.bracket_height_mm if spec.kind == "motor_bracket" else spec.thickness_mm]
+        expected_volume = spec.length_mm * spec.width_mm * spec.thickness_mm
+        if spec.kind == "motor_bracket":
+            expected_volume += spec.thickness_mm * spec.width_mm * (spec.bracket_height_mm - spec.thickness_mm)
+    measured = [bounds.X, bounds.Y, bounds.Z]
+    dims_ok = all(abs(a - b) <= 0.01 for a, b in zip(expected, measured))
     expected_volume -= count * math.pi * radius ** 2 * spec.thickness_mm
     actual_volume = shape.volume
     volume_ok = abs(actual_volume - expected_volume) <= max(0.01, expected_volume * 1e-6)
     # Inspect circular rim edges in the saved STEP: two per through-hole.
-    x = spec.length_mm / 2 - spec.hole_inset_mm
-    y = spec.width_mm / 2 - spec.hole_inset_mm
-    centers = [(-x, 0), (x, 0)] if count == 2 else [(a, b) for a in (-x, x) for b in (-y, y)]
+    centers = hole_positions(spec)
     expected_rims = [(a, b, z) for a, b in centers for z in (0, spec.thickness_mm)]
     rims = [edge for edge in shape.edges() if edge.geom_type == bd.GeomType.CIRCLE]
     holes_ok = len(rims) == len(expected_rims) and all(
