@@ -1,5 +1,6 @@
 """The local frontend serves only packaged public assets, never the repo root."""
 import unittest
+from html.parser import HTMLParser
 from fastapi.testclient import TestClient
 from roboforge.main import app
 
@@ -15,7 +16,7 @@ class FrontendTests(unittest.TestCase):
         self.assertIn("script-src 'self'", page.headers['content-security-policy'])
         self.assertIn('camera=()', page.headers['permissions-policy'])
         self.assertNotIn('<script>', page.text)
-        for asset in ['app.js', 'style.css', 'studio.css', 'viewer.js', 'showcase.js']:
+        for asset in ['app.js', 'style.css', 'studio.css', 'viewer.js', 'showcase.js', 'motion.js', 'sections.js']:
             response = self.client.get('/ui/assets/' + asset)
             self.assertEqual(response.status_code, 200)
             self.assertTrue(response.content)
@@ -39,6 +40,41 @@ class FrontendTests(unittest.TestCase):
         project = self.client.post('/projects', json={'name': 'Frontend contract test'})
         self.assertEqual(project.status_code, 201)
         self.assertEqual(self.client.get('/projects/' + project.json()['id']).status_code, 200)
+
+    def test_workspace_sections_have_unique_ids_and_contain_the_correct_controls(self):
+        class Structure(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.sections = []
+                self.parents = {}
+                self.tabs = {}
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == 'section':
+                    self.sections.append(attrs.get('id'))
+                if attrs.get('id'):
+                    self.assert_unique(attrs['id'])
+                    self.parents[attrs['id']] = list(self.sections)
+                if attrs.get('role') == 'tab':
+                    self.tabs[attrs['id']] = attrs['aria-controls']
+            def assert_unique(self, key):
+                if key in self.parents:
+                    raise AssertionError(f'Duplicate ID: {key}')
+            def handle_endtag(self, tag):
+                if tag == 'section':
+                    self.sections.pop()
+        structure = Structure()
+        structure.feed(self.client.get('/').text)
+        self.assertEqual(structure.sections, [], 'All section wrappers must close')
+        expected = {'stage': 'panel-review', 'bom-lines': 'panel-review', 'budget-slider': 'panel-review',
+                    'requirements-form': 'panel-edit', 'cad-form': 'panel-edit', 'research-form': 'panel-finance',
+                    'downloads': 'panel-files', 'asm-stage': 'panel-steps', 'asm-prints': 'panel-prints',
+                    'wiring-rows': 'panel-wiring', 'asm-tools': 'panel-checklist'}
+        for control, panel in expected.items():
+            self.assertIn(panel, structure.parents[control], control)
+        for tab, panel in structure.tabs.items():
+            self.assertIn(panel, structure.parents)
+        self.assertEqual(len(structure.tabs), 8)
 
     def test_browser_source_keeps_secrets_and_capture_out_of_auto_demo(self):
         source = self.client.get('/ui/assets/app.js').text

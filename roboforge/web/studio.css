@@ -210,6 +210,87 @@ input[type="range"] { accent-color: var(--green); }
   .facts dd { font-size: 19px; }
   .next-row { padding: 18px; }
 }
+/* Task-based navigation keeps unrelated controls out of the current view. */
+.workspace-subtitle { margin: 10px 0 0; color: var(--muted); font-size: 13px; max-width: 650px; }
+.section-navigation { display: flex; align-items: center; justify-content: space-between; gap: 18px; position: sticky; top: 0; z-index: 20; padding: 10px 0; background: #fffffff5; border-bottom: 1px solid var(--line); }
+.section-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.section-tabs button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 10px 16px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--muted); font-size: 13px; }
+.section-tabs button span { font: 10px Consolas, monospace; color: var(--muted); }
+.section-tabs button:hover { background: #f6f8f2; color: var(--ink); }
+.section-tabs button[aria-selected="true"] { border-color: #b9cbb5; background: var(--tint); color: var(--green); font-weight: 600; }
+.section-tabs button[aria-selected="true"] span { color: var(--green); }
+.workspace-panel { min-width: 0; outline-offset: 4px; scroll-margin-top: 76px; }
+.section-intro { padding: 22px 0 18px; }
+.section-intro h2 { margin: 0 0 6px; font-size: 22px; letter-spacing: -.6px; }
+.section-intro p { margin: 0; color: var(--muted); font-size: 13px; max-width: 820px; }
+.section-intro > button { margin-top: 12px; }
+.workspace-panel > :is(.ws-row, .asm-grid, .downloads-card, .finance-research) { margin-top: 0; }
+.form-group { min-width: 0; margin: 8px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 5px; }
+.form-group legend { padding: 0 5px; color: var(--green); font-size: 12px; font-weight: 600; }
+.form .form-section-title { margin: 10px 0; font-size: 15px; }
+#requirements-form { padding-top: 20px; margin-top: 18px; border-top: 1px solid var(--line); }
+.manual-settings { margin-top: 20px; padding-top: 18px; }
+.manual-settings > summary { font-size: 15px; color: var(--ink); }
+.manual-settings #requirements-form { margin: 0; padding-top: 12px; border: 0; }
+.assembly-tabs { position: sticky; top: 0; z-index: 20; margin-top: 20px; padding: 10px 0; background: #fffffff5; border-bottom: 1px solid var(--line); }
+#panel-checklist .ws-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#panel-review .stage { height: min(58vh, 560px); min-height: 360px; }
+#panel-review .facts { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+#panel-review .facts dd { font-size: 18px; }
+#panel-review .parts { max-height: 260px; }
+#panel-review .card-body { padding: 15px; }
+.next-row { gap: 16px; }
+@media (min-width: 1181px) { #panel-review .stage-card { position: sticky; top: 78px; } }
+@media (max-width: 820px) {
+  .section-navigation { align-items: stretch; flex-direction: column; gap: 8px; }
+  .workspace-panel { scroll-margin-top: 115px; }
+  .section-navigation > button { align-self: flex-start; }
+  .section-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; gap: 4px; }
+  .section-tabs button { padding: 10px 7px; font-size: 12px; gap: 5px; }
+  .section-tabs button span { display: none; }
+  #panel-checklist .ws-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .section-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .workspace-panel { scroll-margin-top: 160px; }
+  .workspace-subtitle { font-size: 12px; }
+  #panel-review .stage { height: 50vh; min-height: 320px; }
+  #panel-review .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .fields.three { grid-template-columns: 1fr; }
+  .choices { grid-template-columns: 1fr; }
+  .choice span { padding: 8px 10px; }
+}
+/* A quiet motion language for the white engineering workspace. */
+#panel-review .viewport-shell:fullscreen .stage { height: 100vh; min-height: 100vh; }
+@keyframes studio-enter {
+  from { opacity: .4; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes studio-fade { from { opacity: .3; } to { opacity: 1; } }
+@media (prefers-reduced-motion: no-preference) {
+  :is(.start, .workspace, .assemble):not([hidden]) { animation: studio-enter .4s ease-out; }
+  .workspace-panel:not([hidden]) { animation: studio-enter .3s ease-out; }
+  .section-tabs button { transition: background-color .2s ease, border-color .2s ease, color .2s ease; }
+  :is(.button, .quiet, .chip, .viewport-tools button, .choice span, .sc-dots button) {
+    transition: transform .18s ease, background-color .2s ease, border-color .2s ease, box-shadow .2s ease;
+  }
+  :is(.button, .quiet, .chip):hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 3px 9px #263a2f12; }
+  :is(.button, .quiet, .chip, .viewport-tools button):active:not(:disabled) { transform: translateY(0) scale(.98); }
+  :is(input, select, textarea, .brief-form, .part-row, .stepper li, .badge) {
+    transition: border-color .2s ease, background-color .2s ease, box-shadow .2s ease;
+  }
+  .choice span:hover { transform: translateY(-2px); }
+  .stage canvas { transition: opacity .3s ease; animation: studio-fade .45s ease; }
+  :is(.part-row, .download, .live-transcript li) { animation: studio-enter .32s ease-out; }
+  .part-row:nth-child(2), .download:nth-child(2) { animation-duration: .38s; }
+  .part-row:nth-child(3), .download:nth-child(3) { animation-duration: .44s; }
+  .part-row:hover { background: #edf2e680; }
+  :is(details[open] > :not(summary), #research-results:not([hidden])) { animation: studio-enter .3s ease-out; }
+  .facts dd, .money dd, #revision, #explode-value { animation: studio-fade .35s ease; }
+  .toast { transition: opacity .25s ease, transform .25s ease; }
+  .toast.idle { transform: translate(-50%, 8px); }
+  .sc-caption { transition: opacity .25s ease, transform .25s ease; }
+}
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation: none !important; transition: none !important; }

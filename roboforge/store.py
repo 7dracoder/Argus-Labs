@@ -27,10 +27,12 @@ class ProjectStore:
             return revisions[revision - 1].model_copy(deep=True)
         return None
 
-    def save_revision(self, project: RobotProject) -> RobotProject:
+    def save_revision(self, project: RobotProject, *, expected_revision: int | None = None) -> RobotProject:
         """Persist an edited project as a new revision."""
         with self._lock:
             revisions = self._history[project.id]
+            if expected_revision is not None and revisions[-1].revision != expected_revision:
+                raise ValueError("The robot changed while this edit was being prepared. Reload the current revision and retry.")
             project.revision = revisions[-1].revision + 1
             project.updated_at = datetime.now(timezone.utc)
             revisions.append(project.model_copy(deep=True))

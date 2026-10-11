@@ -3,7 +3,7 @@ import * as THREE from './vendor/three.module.min.js';
 import {GLTFLoader} from './vendor/GLTFLoader.js';
 import {RoomEnvironment} from './vendor/RoomEnvironment.js';
 import {OrbitControls} from './vendor/OrbitControls.js';
-import {applyFinishes} from './viewer.js?v=7';
+import {applyFinishes} from './viewer.js?v=8';
 
 const HOLD_MS = 5200, IN_MS = 1100, OUT_MS = 700;
 const easeOut = t => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
@@ -17,6 +17,7 @@ export class Showcase {
     this.models = new Map();
     this.index = -1; this.current = null; this.outgoing = null;
     this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', event => { this.reduced = event.matches; });
     this.paused = true; this.visible = true; this.spin = 0.35; this.drag = null; this.held = 0;
 
     const r = this.renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});

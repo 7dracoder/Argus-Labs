@@ -1,12 +1,22 @@
-import {Viewer, webglAvailable} from './viewer.js?v=7';
+import {Viewer, webglAvailable} from './viewer.js?v=8';
 import {LiveVoice} from './live.js?v=4';
-import {Showcase} from './showcase.js?v=5';
+import {Showcase} from './showcase.js?v=6';
 import {Blueprint} from './blueprint.js?v=4';
 import {FinancialResearch} from './financial.js?v=1';
+import {initMotion} from './motion.js?v=1';
+import {SectionTabs} from './sections.js?v=1';
+
+initMotion();
 
 const $ = id => document.getElementById(id);
 const state = {project: null, assembly: null, bom: null, stageKey: null, view: 'robot', partId: null, selected: null,
   lastAudio: null, interaction: null, busy: false, viewer: null, buy: null, guide: null, asmViewer: null, asmKey: null};
+const workspaceSections = new SectionTabs($('workspace-tabs'), section => {
+  if (section === 'review') state.viewer?.resize();
+});
+const assemblySections = new SectionTabs($('assembly-tabs'), section => {
+  if (section === 'steps') state.asmViewer?.resize();
+});
 const money = value => new Intl.NumberFormat('en-US', {style: 'currency', currency: 'USD', maximumFractionDigits: 0}).format(value);
 const cents = value => new Intl.NumberFormat('en-US', {style: 'currency', currency: 'USD'}).format(value);
 const financialResearch = new FinancialResearch({api, action, announce, project: () => state.project});
@@ -73,7 +83,9 @@ function node(tag, text, className) { const el = document.createElement(tag); if
 function partList() { return Object.values(state.project?.manufacturing?.cad_parts || {}); }
 function show(screen) {
   const changed = $(screen).hidden;
+  const fromStart = !$('start').hidden;
   for (const id of ['start', 'workspace', 'assemble']) $(id).hidden = screen !== id;
+  if (screen === 'workspace' && fromStart) workspaceSections.select('review');
   $('new-robot').hidden = screen === 'start';
   $('explore-robots').hidden = screen !== 'start';
   if (screen === 'workspace') state.viewer?.resize();
@@ -232,6 +244,8 @@ function renderFacts(a, bom) {
   $('fact-height').textContent = `${Math.round(s.height_m * 100)} cm`;
   $('fact-reach').textContent = s.arm_reach_m ? `${Math.round(s.arm_reach_m * 100)} cm` : '—';
   $('fact-mass').textContent = `${bom.total_mass_kg.toFixed(1)} kg`;
+  $('fact-body').textContent = (s.body_size_mm || []).join(' × ');
+  $('fact-area').textContent = `${s.body_area_m2 ?? '?'} m²`;
 }
 function renderBrief(p) {
   const r = p.requirements;
@@ -240,6 +254,7 @@ function renderBrief(p) {
   $('req-mobility').value = r.mobility === 'fixed' ? 'fixed' : 'wheeled';
   $('req-runtime').value = r.runtime_hours ?? '';
   $('req-budget').value = r.budget_usd ?? '';
+  for (const [id, key] of Object.entries({length: 'body_length_mm', width: 'body_width_mm', mast: 'mast_height_mm', link: 'arm_link_length_mm', wheel: 'wheel_diameter_mm', area: 'operating_area_m2'})) $('req-' + id).value = r[key] ?? '';
 }
 
 // ---------- 3D stage ----------
@@ -419,7 +434,16 @@ async function startDesign(brief, budget) {
   await api(projectPath('/design/auto'), {});
   await refresh();
   announce('Your robot is ready. Click parts to inspect them, or adjust the brief and rebuild.');
-  reviewBrief(brief);
+  // No background interview may silently change an already built design.
+}
+async function applyDesignEdit(message, componentId = state.selected) {
+  const result = await api(projectPath('/design/edit'), {message, component_id: componentId || null, expected_revision: state.project.revision});
+  state.stageKey = null; state.view = 'robot';
+  if (state.selected && !result.project.components.some(c => c.id === state.selected)) state.selected = null;
+  await refresh();
+  $('design-edit-result').textContent = `Revision ${result.revision}. ${result.reply}`;
+  announce(`Changes applied to revision ${result.revision}.`);
+  return result;
 }
 async function reviewBrief(message) {
   // Background: the Architect reads the brief and asks one follow-up question.
@@ -440,7 +464,9 @@ async function reviewBrief(message) {
 function readBrief() {
   const number = id => $(id).value === '' ? null : Number($(id).value);
   return {...state.project.requirements, description: $('req-description').value.trim(), payload_kg: number('req-payload'),
-    mobility: $('req-mobility').value, runtime_hours: number('req-runtime'), budget_usd: number('req-budget')};
+    mobility: $('req-mobility').value, runtime_hours: number('req-runtime'), budget_usd: number('req-budget'),
+    body_length_mm: number('req-length'), body_width_mm: number('req-width'), mast_height_mm: number('req-mast'),
+    arm_link_length_mm: number('req-link'), wheel_diameter_mm: number('req-wheel'), operating_area_m2: number('req-area')};
 }
 async function createDemo() {
   state.project = await api('/projects/demo', {}); resetConversation(); state.stageKey = null; state.selected = null; await refresh();
@@ -460,6 +486,7 @@ async function generatePart(spec, prompt) {
     ...(prompt ? {prompt} : {spec}), estimated_unit_cost_usd: Number($('part-price').value)});
   state.partId = result.design_id; state.view = 'part';
   await refresh();
+  workspaceSections.select('review');
   $('part-details').textContent = `${KIND_NAMES[result.spec.kind]} built: ${result.spec.length_mm} × ${result.spec.width_mm} × ${result.spec.thickness_mm} mm, ${(result.geometry.mass_kg * 1000).toFixed(0)} g. Added to the parts list and the robot. Switch to “Whole robot” to see it in place.`;
   return result;
 }
@@ -486,7 +513,7 @@ function renderDownloads() {
       a.setAttribute('download', ''); links.append(a);
     }
     const view = node('button', 'View in 3D', 'quiet view'); view.type = 'button';
-    view.addEventListener('click', () => { state.partId = part.design_id; state.view = 'part'; renderStage(); $('stage').scrollIntoView({behavior: 'smooth', block: 'center'}); });
+    view.addEventListener('click', () => { workspaceSections.select('review'); state.partId = part.design_id; state.view = 'part'; renderStage(); $('stage').scrollIntoView({block: 'center'}); });
     box.append(links, view); return box;
   }));
 }
@@ -511,6 +538,7 @@ async function openAssemble() {
   const data = await api(projectPath(`/assembly-guide?revision=${state.project.revision}`));
   state.guide = {data, index: 0};
   renderGuide(data);
+  assemblySections.select('steps');
   show('assemble');
   goStep(0);
   await renderAsmStage();
@@ -774,8 +802,16 @@ const liveTools = {
     if (params.description) updates.description = String(params.description).slice(0, 4000);
     if (params.robot_type) updates.robot_type = params.robot_type === 'automatic' ? null : params.robot_type;
     if (params.contingency_pct !== undefined) updates.contingency_pct = clamp(params.contingency_pct, 0, 50);
+    for (const key of ['body_length_mm', 'body_width_mm', 'mast_height_mm', 'arm_link_length_mm', 'wheel_diameter_mm', 'operating_area_m2']) {
+      if (params[key] !== undefined) updates[key] = Number(params[key]);
+    }
     await api(projectPath('/design/auto'), {requirements: {...state.project.requirements, ...updates}});
     state.stageKey = null; await refresh(); return summary();
+  }),
+  edit_robot: ({instruction}) => whenIdle(async () => {
+    if (!state.project) return {error: 'No robot yet.'};
+    const res = await applyDesignEdit(String(instruction || '').slice(0, 4000));
+    return {changed: res.changed, reply: res.reply, revision: res.revision, status: await summary()};
   }),
   make_it_cheaper: () => whenIdle(async () => {
     if (!state.project) return {error: 'No robot yet.'};
@@ -784,6 +820,7 @@ const liveTools = {
   }),
   find_where_to_buy: () => whenIdle(async () => {
     if (!state.project) return {error: 'No robot yet.'};
+    workspaceSections.select('review');
     const r = await findWhereToBuy();
     $('bom-lines').scrollIntoView({behavior: 'smooth', block: 'center'});
     return {main_store: r.main_store, parts_at_main_store: r.at_main_store, bought_parts: r.bought_parts,
@@ -794,6 +831,7 @@ const liveTools = {
     if (!state.bom) return {error: 'No robot yet.'};
     const line = findLine(part_name);
     if (!line) return {found: false, parts: state.bom.lines.map(l => l.name)};
+    workspaceSections.select('review');
     select(line.component_id, true);
     $('stage').scrollIntoView({behavior: 'smooth', block: 'center'});
     const info = await api(projectPath(`/components/${encodeURIComponent(line.component_id)}/info`));
@@ -804,10 +842,11 @@ const liveTools = {
   edit_part: ({part_name, instruction}) => whenIdle(async () => {
     if (!state.bom) return {error: 'No robot yet.'};
     const line = part_name ? findLine(part_name) : null;
+    if (part_name && !line) return {error: 'That part was not found. Select it in the parts list or use its exact name.'};
     const id = line?.component_id || state.selected;
     if (!id) return {error: 'No part selected. Ask which part, then pass part_name.', parts: state.bom.lines.map(l => l.name)};
     if (id !== state.selected) select(id, true);
-    const res = await editPart({instruction: String(instruction || '').slice(0, 500)}, id);
+    const res = await applyDesignEdit(String(instruction || '').slice(0, 500), id);
     return {changed: res.changed, reply: res.reply, warnings: res.warnings, status: await summary()};
   }),
   build_custom_part: ({kind, size, length_mm, width_mm, thickness_mm, material}) => whenIdle(async () => {
@@ -846,6 +885,7 @@ const liveTools = {
   set_view: async ({view, angle, close_panel}) => {
     if (!state.project) return {error: 'No robot yet.'};
     if (view === 'custom_part' && !partList().length) return {error: 'No custom parts yet.'};
+    workspaceSections.select('review');
     if (view) { state.view = view === 'custom_part' ? 'part' : 'robot'; await renderStage(); }
     if (close_panel) select(null);
     if (angle) state.viewer?.setAngle(angle);
@@ -863,6 +903,7 @@ const liveTools = {
   show_assembly: ({step}) => whenIdle(async () => {
     if (!state.project) return {error: 'No robot yet.'};
     if ($('assemble').hidden || !state.guide) await openAssemble();
+    assemblySections.select('steps');
     if (step) goStep(Math.round(Number(step)) - 1);
     const g = state.guide.data, current = g.steps[state.guide.index];
     return {showing_step: `${state.guide.index + 1} of ${g.steps.length}: ${current.title}`, instructions: current.items,
@@ -878,20 +919,28 @@ $('requirements-form').addEventListener('submit', event => { event.preventDefaul
   await refresh(); announce(res.warnings.length ? `Rebuilt with ${res.warnings.length} warning(s). See the parts list.` : 'Robot rebuilt from your brief.');
 }, 'Rebuilding the robot from your brief…'); });
 $('architect-form').addEventListener('submit', event => { event.preventDefault(); const answer = $('architect-answer').value.trim(); if (!answer) return; action(async () => {
-  $('architect-answer').value = ''; await reviewBrief(answer);
-  announce('Brief updated. Press “Rebuild robot” to apply it.');
-}, 'Updating your brief…'); });
+  await applyDesignEdit(answer); $('architect-answer').value = '';
+}, 'Applying your changes…'); });
+$('design-edit-form').addEventListener('submit', event => { event.preventDefault(); const message = $('design-edit-message').value.trim(); if (!message) return; action(async () => {
+  try { await applyDesignEdit(message); $('design-edit-message').value = ''; }
+  catch (error) { $('design-edit-result').textContent = `Not applied: ${error.message}`; throw error; }
+}, 'Updating parts, dimensions and CAD…'); });
 document.querySelectorAll('input[name="part-kind"], input[name="part-size"]').forEach(input => input.addEventListener('change', applyPreset));
 $('cad-form').addEventListener('submit', event => { event.preventDefault(); action(async () => {
   const kind = document.querySelector('input[name="part-kind"]:checked').value;
   await generatePart({kind, length_mm: Number($('length').value), width_mm: Number($('width').value), thickness_mm: Number($('thickness').value),
     ...(kind === 'motor_bracket' ? {hole_inset_mm: Math.min(16, Math.max(12, Number($('width').value) / 4))} : {})}, $('cad-prompt').value.trim());
-  announce('Part built. STEP, STL and GLB downloads are ready below.');
+  announce('Part built. Review it here, or open Files for STEP, STL and GLB downloads.');
 }); });
 $('csv').addEventListener('click', downloadCSV);
 $('to-assemble').addEventListener('click', () => action(openAssemble, 'Preparing the assembly guide…'));
+document.querySelectorAll('[data-open-assembly]').forEach(button => button.addEventListener('click', () => action(openAssemble, 'Preparing the assembly guide…')));
+document.querySelectorAll('[data-workspace-section]').forEach(button => button.addEventListener('click', () => workspaceSections.select(button.dataset.workspaceSection, true)));
+$('asm-detail-link').addEventListener('click', event => {
+  event.preventDefault(); assemblySections.select($('asm-detail-link').getAttribute('href') === '#prints-title' ? 'prints' : 'wiring', true, true);
+});
 $('print-option').addEventListener('click', () => action(async () => {
-  await openAssemble(); $('asm-prints').scrollIntoView({behavior: 'smooth', block: 'start'});
+  await openAssemble(); assemblySections.select('prints', true);
 }, 'Preparing printable parts…'));
 $('inspect-internals').addEventListener('change', () => {
   if (state.view === 'robot') state.viewer?.inspectInternals($('inspect-internals').checked, state.assembly);

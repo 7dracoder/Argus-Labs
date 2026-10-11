@@ -49,6 +49,9 @@ Help the person get the best robot for their needs and budget.
 6. To change one part (cheaper, stronger, lighter, the best one, a named model, or remove it) call edit_part.
    The app tells you which part the user selected in the 3D view; "this" or "it" means that part. Tell them
    the result from the tool's reply, including any warning that a part is too weak.
+   For size, footprint, working area, custom-part dimensions or several edits together call edit_robot with
+   the user's exact instruction. This applies a saved revision and refreshes CAD. Never say an edit worked
+   until the tool returns changed=true. If it returns an error, explain that no edit was saved.
 7. Before calling build_custom_part, say what you will build and get a yes. This step is important.
    Use exact millimetres and a material when the user gives them; otherwise a size preset.
 8. Call download_file when they want a file: whole-robot STEP, GLB or build report, the parts list as CSV,
@@ -96,6 +99,9 @@ TOOLS = [
                           + "; automatic lets Argus choose"},
            "contingency_pct": {"type": "number", "description": "Reserve added on top of parts cost, percent (0 to 50)"}},
           [], timeout=90),
+    _tool("edit_robot", "Apply the user's exact edit to the current robot: parts, body dimensions, footprint, mast, arm links, operating area or existing custom CAD. Returns saved revision and actual result. If unsupported, no changes are saved.",
+          {"instruction": {"type": "string", "description": "The user's exact requested changes, including units and named parts"}},
+          ["instruction"], timeout=180),
     _tool("make_it_cheaper", "Swap to cheaper parts with equal or better key specs. If over budget, fits the budget.",
           timeout=60),
     _tool("find_where_to_buy", "Search robotics stores for every part and add buy links to the parts list. Keeps "

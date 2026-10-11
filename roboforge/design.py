@@ -17,6 +17,7 @@ from roboforge.catalog import BODY_FIT, CATALOG, make_component
 from roboforge.concept import Concept, to_archetype
 from roboforge.finance import build_bom, check_budget, optimize_cost
 from roboforge.models import Component, Requirements
+from roboforge.dimensions import apply_dimensions, parse_dimensions
 
 G = 9.81
 ARM_REACH_M = 0.20       # assumed horizontal reach at full extension
@@ -116,6 +117,8 @@ def _cheapest(kind: str, spec: str | None = None, minimum: float = 0.0,
 
 
 def _infer(req: Requirements) -> tuple[Requirements, list[str], list[str]]:
+    explicit = {k: v for k, v in parse_dimensions(req.description).items() if getattr(req, k) is None}
+    req = Requirements.model_validate({**req.model_dump(), **explicit})
     text, assumptions, warnings = _text(req), [], []
     payload = req.payload_kg
     if payload is None:
@@ -331,6 +334,7 @@ def configure(req: Requirements, concept: Concept | None = None) -> DesignResult
     has_arm = arch.arm or (not concept and has_any(text, ARM_WORDS) and arch.key in ("tracked_explorer", "mobile_robot"))
     if has_arm and arch.key == "mobile_robot":
         arch = ARCHETYPES["mobile_manipulator"]
+    arch = apply_dimensions(arch, req)
     voice = (concept.voice if concept else has_any(text, VOICE_WORDS)) or arch.key == "telepresence"
     build: list[Component] = []
     decisions: list[Decision] = [Decision(part="Body plan", choice=arch.label,
@@ -360,7 +364,7 @@ def configure(req: Requirements, concept: Concept | None = None) -> DesignResult
                            f"(payload + ~{arch.base_mass_kg:g} kg robot).", ("max_load_kg", load))
 
     if has_arm:
-        reach = 0.28 if arch.key == "stationary_arm" else ARM_REACH_M
+        reach = max(ARM_REACH_M, req.arm_link_length_mm / 1000 * 2) if req.arm_link_length_mm else (0.28 if arch.key == "stationary_arm" else ARM_REACH_M)
         need = (payload + ARM_SELF_MASS_KG) * G * reach
         strong, ok = _cheapest("arm_servo", "torque_nm", need)
         light, _ = _cheapest("arm_servo", "torque_nm", need * 0.35)
@@ -434,6 +438,11 @@ def configure(req: Requirements, concept: Concept | None = None) -> DesignResult
             cid = _cheapest_where("wheel", lambda i: i["specs"]["diameter_mm"] >= arch.wheel_mm
                                   and i["specs"]["max_load_kg"] >= per_wheel and not i["specs"].get("omni")
                                   and not (indoor and "pneumatic" in i["name"]))
+            if req.wheel_diameter_mm is not None:
+                cid = _cheapest_where("wheel", lambda i: i["specs"]["diameter_mm"] == req.wheel_diameter_mm
+                                      and not i["specs"].get("omni"))
+                if cid is None:
+                    raise BriefError("No catalog wheel has that diameter. Available diameters are 65, 100 and 150 mm.")
             if cid is None:
                 cid = "wheel-150-pneumatic"
             add(cid, arch.wheels, "Wheels", f"{arch.wheels} × {CATALOG[cid]['specs']['diameter_mm']} mm wheels for "
@@ -476,6 +485,13 @@ def configure(req: Requirements, concept: Concept | None = None) -> DesignResult
             upgrades.append(f"Add {extra.name}")
             decisions.append(Decision(part="Upgrade", choice=f"Added {extra.name}",
                                       reason=UPGRADE_REASONS.get(extra.kind, "Adds capability.")))
+    if req.wheel_diameter_mm is not None:
+        for c in build:
+            if c.kind == "wheel" and c.specs["diameter_mm"] != req.wheel_diameter_mm:
+                original = next(x for x in base if x.kind == "wheel")
+                c.catalog_id, c.name, c.specs, c.unit_cost_usd = original.catalog_id, original.name, original.specs, original.unit_cost_usd
+    if any(getattr(req, field) is not None for field in ("body_length_mm", "body_width_mm", "mast_height_mm", "arm_link_length_mm")):
+        warnings.append("Custom dimensions change the prototype CAD layout. Stock frame prices are estimates, not quotes for a resized frame; mounting, clearances and strength need review.")
     performance = _performance(build, moving)
 
     return DesignResult(components=build, robot_type=arch.label, archetype=arch.key, decisions=decisions,

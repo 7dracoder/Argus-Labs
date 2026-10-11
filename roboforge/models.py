@@ -27,16 +27,23 @@ class Category(str, Enum):
 
 
 class Requirements(BaseModel):
+    model_config = {"allow_inf_nan": False}
     description: str = ""
     tasks: list[str] = []
     environment: str = "indoor"
-    payload_kg: float | None = None
+    payload_kg: float | None = Field(default=None, ge=0, le=150)
     mobility: str | None = None  # wheeled, legged, fixed...
-    runtime_hours: float | None = None
+    runtime_hours: float | None = Field(default=None, ge=0.5, le=24)
     budget_usd: float | None = Field(default=None, ge=0)
     robot_type: str | None = None  # archetype override (see roboforge/archetypes.py); None = automatic
     contingency_pct: float = Field(default=10.0, ge=0, le=100)
     assumptions: list[str] = []  # unconfirmed assumptions awaiting user approval
+    body_length_mm: float | None = Field(default=None, ge=180, le=1500)
+    body_width_mm: float | None = Field(default=None, ge=140, le=1200)
+    mast_height_mm: float | None = Field(default=None, ge=0, le=1300)
+    arm_link_length_mm: float | None = Field(default=None, ge=60, le=400)
+    wheel_diameter_mm: float | None = Field(default=None, ge=65, le=300)
+    operating_area_m2: float | None = Field(default=None, gt=0, le=1000000)
 
 
 class Component(BaseModel):

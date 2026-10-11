@@ -123,7 +123,7 @@ def _demand(project: RobotProject, c: Component, specs: dict | None = None) -> d
         need = (total + payload) * G * radius * coeff * SAFETY / max(c.quantity, 1)
         label = f"Torque needed per motor ({SAFETY:g}× safety)"
     elif c.kind == "arm_servo":
-        reach = 0.28 if archetype == "stationary_arm" else ARM_REACH_M
+        reach = max(ARM_REACH_M, project.requirements.arm_link_length_mm / 1000 * 2) if project.requirements.arm_link_length_mm else (0.28 if archetype == "stationary_arm" else ARM_REACH_M)
         full = (payload + ARM_SELF_MASS_KG) * G * reach
         servos = [x for x in comps if x.kind == "arm_servo"]
         shoulder = max(servos, key=lambda x: x.specs.get("torque_nm", 0))
@@ -240,6 +240,7 @@ class PartEdit(BaseModel):
     instruction: str | None = Field(default=None, max_length=500)
     catalog_id: str | None = Field(default=None, max_length=80)
     remove: bool = False
+    quantity: int | None = Field(default=None, ge=1, le=20)
 
 
 class EditChoice(BaseModel):
@@ -334,11 +335,16 @@ def _spec_change(old: dict, new: dict, kind: str) -> str:
 def edit(project: RobotProject, component_id: str, body: PartEdit) -> tuple[RobotProject, dict]:
     """Apply one edit in place (caller saves the revision). Returns (project, outcome)."""
     c = _find(project, component_id)
+    if body.quantity is not None and c.kind in {"wheel", "drive_motor", "track"} and body.quantity != c.quantity:
+        return project, {"changed": False, "reply": "Change the body plan to change the drive layout; arbitrary drive component counts are not supported.", "warnings": []}
+    slot = [x.id for x in project.components if x.kind == c.kind and x.source != "generated"].index(c.id) if c.source != "generated" else None
     text = (body.instruction or "").strip().lower()
     if body.remove:
         action, cid, why = "remove", None, "removed"
     elif body.catalog_id:
         action, cid, why = "swap", body.catalog_id, "chosen in the part panel"
+    elif body.quantity is not None and not body.instruction:
+        action, cid, why = "swap", c.catalog_id, "quantity changed"
     else:
         action, cid, why = _pick(project, c, text)
         if action == "none" and not why and text:
@@ -355,6 +361,8 @@ def edit(project: RobotProject, component_id: str, body: PartEdit) -> tuple[Robo
             return project, {"changed": False, "warnings": [],
                              "reply": "Every robot needs its frame. Ask for a cheaper or stronger one instead."}
         project.components = [x for x in project.components if x.id != c.id]
+        project.manufacturing["cad_parts"] = {key: value for key, value in project.manufacturing.get("cad_parts", {}).items()
+                                              if value.get("component_id") != c.id}
         reply, decision = f"Removed {c.name} (−${c.unit_cost_usd * c.quantity:,.0f}).", f"Removed {c.name}"
         if c.kind in ESSENTIAL:
             reply += f" Without it the robot can't {ESSENTIAL[c.kind]}; rebuild or swap one back in."
@@ -365,10 +373,10 @@ def edit(project: RobotProject, component_id: str, body: PartEdit) -> tuple[Robo
         if not _fits(cid, _archetype(project)):
             return project, {"changed": False, "warnings": [],
                              "reply": f"{CATALOG[cid]['name']} isn't built for this kind of robot."}
-        new = make_component(cid, c.quantity)
+        new = make_component(cid, body.quantity if body.quantity is not None else c.quantity)
         new.id = c.id
         project.components = [new if x.id == c.id else x for x in project.components]
-        delta = (new.unit_cost_usd - c.unit_cost_usd) * c.quantity
+        delta = new.unit_cost_usd * new.quantity - c.unit_cost_usd * c.quantity
         reply = (f"Swapped {c.name} → {new.name} ({'+' if delta >= 0 else '−'}${abs(delta):,.0f}, {why})."
                  + _spec_change(c.specs, new.specs, c.kind))
         decision = f"{c.name} → {new.name}"
@@ -385,6 +393,11 @@ def edit(project: RobotProject, component_id: str, body: PartEdit) -> tuple[Robo
     moving = any(x.kind == "drive_motor" for x in project.components)
     performance = _performance(project.components, moving)
     arch = project.architecture
+    if slot is not None:
+        key = f"{c.kind}:{slot}"
+        arch.setdefault("part_overrides", {})[key] = {"kind": c.kind, "slot": slot, "id": c.id,
+            "catalog_id": new.catalog_id if new else None, "removed": new is None,
+            "quantity": new.quantity if new else c.quantity}
     arch.update({"performance": performance, "tier": _tier(performance), "edited": True, "edit_warnings": warnings,
                  "decisions": [*arch.get("decisions", []),
                                {"part": "Your edit", "choice": decision,
@@ -393,3 +406,53 @@ def edit(project: RobotProject, component_id: str, body: PartEdit) -> tuple[Robo
                                                detail=f"{decision}: fit, mounting and sizing need review."))
     return project, {"changed": True, "reply": reply, "warnings": warnings,
                      "component_id": new.id if new else None}
+
+
+def preserve_choices(project: RobotProject, previous: list[Component]) -> None:
+    """Keep selected models/removals across budget and requirement rebuilds."""
+    old_slots = {}
+    for c in previous:
+        if c.source != "generated":
+            old_slots.setdefault(c.kind, []).append(c)
+    counts, rebuilt, warnings = {}, [], []
+    overrides = project.architecture.get("part_overrides", {})
+    applied = set()
+    for c in project.components:
+        if c.source == "generated":
+            rebuilt.append(c)
+            continue
+        slot = counts.get(c.kind, 0)
+        counts[c.kind] = slot + 1
+        key = f"{c.kind}:{slot}"
+        choice = overrides.get(key)
+        old = old_slots.get(c.kind, [])
+        if slot < len(old):
+            c.id = old[slot].id
+        if choice:
+            applied.add(key)
+            if choice["removed"]:
+                continue
+            if choice["catalog_id"] not in CATALOG or not _fits(choice["catalog_id"], _archetype(project)):
+                warnings.append(f"Your {c.kind.replace('_', ' ')} choice does not fit this body plan; a compatible part was selected. The saved choice remains available when you switch back.")
+            else:
+                c = make_component(choice["catalog_id"], choice["quantity"])
+                c.id = choice["id"]
+        rebuilt.append(c)
+    # Add-ons absent from the automatic build still remain deliberate choices.
+    for key, choice in overrides.items():
+        if key not in applied and not choice["removed"] and _fits(choice["catalog_id"], _archetype(project)):
+            c = make_component(choice["catalog_id"], choice["quantity"])
+            c.id = choice["id"]
+            rebuilt.append(c)
+    project.components = rebuilt
+    for c in rebuilt:
+        demand = _demand(project, c)
+        if demand and demand["status"] == "over":
+            warnings.append(f"{c.name} no longer meets the new requirement: {demand['need']} {demand['unit']} needed, {demand['have']} available.")
+    for choice in overrides.values():
+        if choice["removed"] and choice["kind"] in ESSENTIAL:
+            warnings.append(f"You removed {choice['kind'].replace('_', ' ')}; the robot cannot {ESSENTIAL[choice['kind']]}.")
+    if overrides:
+        moving = any(c.kind == "drive_motor" for c in rebuilt)
+        score = _performance(rebuilt, moving)
+        project.architecture.update(edited=True, edit_warnings=warnings, performance=score, tier=_tier(score))

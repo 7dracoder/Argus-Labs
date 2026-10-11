@@ -49,6 +49,18 @@ export function webglAvailable() {
 
 const HIGHLIGHT = new THREE.Color(0xf2b134);
 
+// Interpolate an orbit, not a straight line through the model.
+export function cameraPose(from, to, fromTarget, toTarget, progress) {
+  const t = Math.max(0, Math.min(1, progress));
+  const ease = t * t * (3 - 2 * t);
+  const a = from.clone().sub(fromTarget), b = to.clone().sub(toTarget);
+  const radius = THREE.MathUtils.lerp(a.length(), b.length(), ease);
+  const rotation = new THREE.Quaternion().setFromUnitVectors(a.clone().normalize(), b.clone().normalize());
+  const turn = new THREE.Quaternion().slerp(rotation, ease);
+  const target = fromTarget.clone().lerp(toTarget, ease);
+  return {target, position: a.normalize().applyQuaternion(turn).multiplyScalar(radius).add(target)};
+}
+
 /** Keep all solids belonging to one CAD instance together while exploding.
  * World-space offsets are converted into each mesh parent's local frame.
  * This is a presentation transform only: geometry and downloads never change.
@@ -112,7 +124,20 @@ export class Viewer {
     this.controls = new OrbitControls(this.camera, this.canvas);
     this.controls.enableDamping = true;
     this.controls.autoRotateSpeed = 1;
-    this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+    this.reduced = this.motionPreference.matches;
+    this.motionPreference.addEventListener('change', event => {
+      this.reduced = event.matches;
+      if (this.reduced) {
+        this.controls.autoRotate = false;
+        if (this.cameraTween) {
+          this.camera.position.copy(this.cameraTween.to);
+          this.controls.target.copy(this.cameraTween.toTarget);
+          this.cameraTween = null;
+        }
+      }
+    });
+    this.controls.addEventListener('start', () => { this.cameraTween = null; });
     this.visible = true;
     this.visibilityObserver = new IntersectionObserver(([entry]) => { this.visible = entry.isIntersecting; });
     this.visibilityObserver.observe(container);
@@ -137,8 +162,11 @@ export class Viewer {
 
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(container);
-    const tick = () => {
-      if (this.visible && !document.hidden) { this.controls.update(); this.renderer.render(this.scene, this.camera); }
+    const tick = now => {
+      if (this.visible && !document.hidden) {
+        this.advanceCamera(now ?? performance.now());
+        this.controls.update(); this.renderer.render(this.scene, this.camera);
+      }
       this.frame = requestAnimationFrame(tick);
     };
     tick();
@@ -157,6 +185,7 @@ export class Viewer {
   }
 
   clear() {
+    this.cameraTween = null;
     this.root.traverse(o => { o.geometry?.dispose(); [o.material].flat().forEach(m => m?.dispose?.()); });
     this.root.clear(); this.meshes = []; this.poses = []; this.controls.autoRotate = false;
     for (const extra of [this.grid, this.ground]) extra?.removeFromParent();
@@ -284,10 +313,15 @@ export class Viewer {
     this.home = {center: center.clone(), distance: this.camera.position.distanceTo(center)};
     this.poses = explosionPoses(this.meshes);
     this.exploded = 0;
+    this.container.dataset.gridVisible = 'true';
   }
 
   setExploded(amount) {
     const value = Math.max(0, Math.min(1, Number(amount) || 0));
+    this.cameraTween = null;
+    // No reference lines behind separated parts, including at just 1%.
+    if (this.grid) this.grid.visible = value === 0;
+    if (this.container) this.container.dataset.gridVisible = String(value === 0);
     for (const pose of this.poses || []) pose.mesh.position.copy(pose.position).addScaledVector(pose.offset, value);
     this.root.updateMatrixWorld(true);
     // Preserve the user's orbit and zoom while opening space for separated parts.
@@ -302,9 +336,7 @@ export class Viewer {
   resetView() {
     this.setExploded(0); this.setSpin(false);
     if (!this.home) return;
-    this.controls.target.copy(this.home.center);
-    this.camera.position.copy(this.home.center).add(new THREE.Vector3(.75, .55, .9).normalize().multiplyScalar(this.home.distance));
-    this.controls.update();
+    this.moveCamera(this.home.center.clone().add(new THREE.Vector3(.75, .55, .9).normalize().multiplyScalar(this.home.distance)), this.home.center);
   }
 
   /** Turn the camera to a named side of the model, keeping the current zoom. */
@@ -312,8 +344,24 @@ export class Viewer {
     // Robots are laid out driving toward +x (see assembly.py), so +x is the front.
     const dirs = {front: [1, 0.25, 0], back: [-1, 0.25, 0], side: [0, 0.25, 1], top: [0.001, 1, 0], default: [0.75, 0.55, 0.9]};
     const target = this.controls.target, distance = this.camera.position.distanceTo(target);
-    this.camera.position.copy(target).add(new THREE.Vector3(...(dirs[angle] || dirs.default)).normalize().multiplyScalar(distance));
-    this.controls.update();
+    this.moveCamera(target.clone().add(new THREE.Vector3(...(dirs[angle] || dirs.default)).normalize().multiplyScalar(distance)), target);
+  }
+
+  moveCamera(position, target) {
+    if (this.reduced || !this.renderer) {
+      this.camera.position.copy(position); this.controls.target.copy(target);
+      this.controls.update(); return;
+    }
+    this.cameraTween = {from: this.camera.position.clone(), to: position.clone(),
+      fromTarget: this.controls.target.clone(), toTarget: target.clone(), start: performance.now()};
+  }
+
+  advanceCamera(now) {
+    if (!this.cameraTween) return;
+    const tween = this.cameraTween, progress = Math.min(1, (now - tween.start) / 480);
+    const pose = cameraPose(tween.from, tween.to, tween.fromTarget, tween.toTarget, progress);
+    this.camera.position.copy(pose.position); this.controls.target.copy(pose.target);
+    if (progress === 1) this.cameraTween = null;
   }
 
   /** Meshes of the first placed instance of a component (one wheel of four). */

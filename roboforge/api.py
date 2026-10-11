@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from roboforge import parts
+from roboforge.edits import EditRequest, apply_plan, parse_plan
 from roboforge.agents import AGENTS
 from roboforge.archetypes import ARCHETYPES
 from roboforge.assembly import build_assembly
@@ -76,7 +77,7 @@ def create_demo_project():
             payload_kg=2, mobility="wheeled", runtime_hours=2, budget_usd=2500,
             assumptions=["Single arm is sufficient", "No stairs"],
         ),
-        architecture={"type": "mobile_manipulator", "subsystems": ["base", "arm", "gripper", "perception"]},
+        architecture={"type": "mobile_manipulator", "archetype": "mobile_manipulator", "subsystems": ["base", "arm", "gripper", "perception"]},
         components=[make_component(cid, qty) for cid, qty in DEMO_BUILD],
     ))
 
@@ -117,10 +118,12 @@ def add_component(project_id: str, body: AddComponent):
 @router.delete("/projects/{project_id}/components/{component_id}", response_model=RobotProject)
 def remove_component(project_id: str, component_id: str):
     project = _get(project_id)
-    remaining = [c for c in project.components if c.id != component_id]
-    if len(remaining) == len(project.components):
-        raise HTTPException(404, "Component not found")
-    project.components = remaining
+    try:
+        project, outcome = parts.edit(project, component_id, parts.PartEdit(remove=True))
+    except KeyError as error:
+        raise HTTPException(404, "Component not found") from error
+    if not outcome["changed"]:
+        raise HTTPException(422, outcome["reply"])
     return store.save_revision(project)
 
 
@@ -136,7 +139,7 @@ def component_info(project_id: str, component_id: str, revision: int | None = No
 @router.post("/projects/{project_id}/components/{component_id}/edit")
 def edit_component(project_id: str, component_id: str, body: parts.PartEdit):
     """Change one part from plain words ("cheaper", "stronger", "use the Maxon", "remove it") or an explicit swap."""
-    if not (body.instruction or body.catalog_id or body.remove):
+    if not (body.instruction or body.catalog_id or body.remove or body.quantity is not None):
         raise HTTPException(422, "Say what to change, pick a replacement, or remove the part.")
     try:
         project, outcome = parts.edit(_get(project_id), component_id, body)
@@ -150,6 +153,30 @@ class AutoDesignRequest(BaseModel):
     requirements: Requirements | None = None  # optional edits applied before designing
 
 
+@router.post("/projects/{project_id}/design/edit")
+def edit_robot(project_id: str, body: EditRequest):
+    """Apply requested parts and dimensions to one saved revision, or explain why not."""
+    project = _get(project_id)
+    revision = project.revision
+    if body.expected_revision is not None and body.expected_revision != revision:
+        raise HTTPException(409, "The robot has a newer revision. Refresh and retry your edit.")
+    try:
+        plan = parse_plan(project, body)
+        outcome = apply_plan(project, body, plan, _rebuild)
+    except (LLMUnavailable, LLMResponseError) as error:
+        raise HTTPException(503, "The edit interpreter is unavailable. Use the dimension fields or select an exact replacement in the parts list.") from error
+    except (CADUnavailable, CADBuildFailed) as error:
+        raise HTTPException(503, "CAD generation failed; no design change was saved. Retry the edit.") from error
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+    try:
+        saved = store.save_revision(project, expected_revision=revision)
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
+    return {**outcome, "project": saved, "revision": saved.revision,
+            "dimensions": build_assembly(saved).summary}
+
+
 def _brief_key(req: Requirements) -> str:
     # Description only: the requirements agent later restates it as `tasks`, which must not re-roll the robot.
     return req.description.strip().lower()
@@ -160,7 +187,7 @@ def _concept(project: RobotProject) -> tuple[Concept | None, dict | None]:
     re-made when the brief changes. Without a text model (or for a chosen robot type) the keyword
     body plans are used instead."""
     req = project.requirements
-    if req.robot_type or not req.description.strip() or brief_problem(req):
+    if req.robot_type or req.mobility == "fixed" or not req.description.strip() or brief_problem(req):
         return None, None
     arch = project.architecture or {}
     if arch.get("concept") and arch.get("concept_brief") == _brief_key(req):
@@ -179,10 +206,28 @@ def auto_design(project_id: str, body: AutoDesignRequest | None = None):
     """Pick a costed catalog build from the requirements. Keeps generated CAD parts."""
     project = _get(project_id)
     if body and body.requirements:
+        if body.requirements.description != project.requirements.description:
+            body.requirements.tasks = []
         project.requirements = body.requirements
     try:
-        concept, research = _concept(project)
-        result = configure(project.requirements, concept)
+        return _rebuild(project)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+
+
+def _rebuild(project: RobotProject, *, save: bool = True, preserve_layout: bool = False):
+    previous = project.components
+    try:
+        req = project.requirements
+        if preserve_layout and project.components:
+            cached = project.architecture.get("concept") if not req.robot_type else None
+            concept = Concept.model_validate(cached) if cached else None
+            research = project.architecture.get("research")
+            req = req if concept or req.robot_type else req.model_copy(update={"robot_type": project.architecture.get("archetype") or parts._archetype(project)})
+        else:
+            concept, research = _concept(project)
+        result = configure(req, concept)
+        result.requirements.robot_type = project.requirements.robot_type
     except (BriefError, ConceptError) as error:
         raise HTTPException(422, str(error)) from error
     # Keep only parts the user generated as CAD (catalog "printed" parts are re-picked).
@@ -193,7 +238,7 @@ def auto_design(project_id: str, body: AutoDesignRequest | None = None):
     concept_cache = {"concept": result.concept, "research": research if result.concept else None,
                      "concept_brief": _brief_key(project.requirements) if result.concept else None}
     project.architecture.update({
-        **({} if project.requirements.robot_type else concept_cache),  # a forced type keeps the AI concept for later
+        **({} if project.requirements.robot_type or preserve_layout else concept_cache),  # keep cached layout for local dimension edits
         "type": result.robot_type,
         "archetype": result.archetype,
         "decisions": [d.model_dump() for d in result.decisions],
@@ -205,10 +250,11 @@ def auto_design(project_id: str, body: AutoDesignRequest | None = None):
         "edited": False,
         "edit_warnings": [],
     })
+    parts.preserve_choices(project, previous)
     project.validation.append(ValidationRecord(
         check="auto_design_sizing", status="pending",
         detail="Torque, energy and load sizing are screening estimates; verify before building."))
-    saved = store.save_revision(project)
+    saved = store.save_revision(project) if save else project
     return {"project": saved, "decisions": result.decisions, "warnings": result.warnings,
             "assumptions": result.assumptions, "performance": result.performance, "tier": result.tier,
             "upgrades": result.upgrades, "next_upgrade": result.next_upgrade}
@@ -278,7 +324,8 @@ def robot_summary(project: RobotProject) -> dict:
         "status": budget.status, "mass_kg": bom.total_mass_kg, "arm_joints": assembly.summary["arm_joints"],
         "wheels": assembly.summary["wheels"],
         "requirements": {k: getattr(project.requirements, k) for k in
-                         ("description", "payload_kg", "mobility", "runtime_hours")},
+                         ("description", "payload_kg", "mobility", "runtime_hours", "body_length_mm", "body_width_mm", "mast_height_mm", "arm_link_length_mm", "wheel_diameter_mm", "operating_area_m2")},
+        "dimensions": assembly.summary,
         "parts": [{"name": line.name, "quantity": line.quantity, "total_usd": line.line_total_usd}
                   for line in bom.lines],
         "warnings": [*arch.get("warnings", []), *arch.get("edit_warnings", [])],

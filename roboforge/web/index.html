@@ -6,8 +6,8 @@
   <title>Argus Labs · Robotics Design Studio</title>
   <link rel="icon" type="image/svg+xml" href="/ui/assets/logo.svg?v=2">
   <link rel="stylesheet" href="/ui/assets/style.css?v=5">
-  <link rel="stylesheet" href="/ui/assets/studio.css?v=2">
-  <script type="module" src="/ui/assets/app.js?v=8"></script>
+  <link rel="stylesheet" href="/ui/assets/studio.css?v=4">
+  <script type="module" src="/ui/assets/app.js?v=11"></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -119,9 +119,21 @@
         <div>
           <span class="eyebrow" id="robot-type">Robot</span>
           <h1 id="project-title">Your robot</h1>
+          <p class="workspace-subtitle">Review your build, make changes, check the economics, then prepare the files.</p>
         </div>
         <span id="revision" class="badge">Revision 1</span>
       </header>
+      <div class="section-navigation">
+        <div id="workspace-tabs" class="section-tabs" role="tablist" aria-label="Robot workspace sections">
+          <button id="tab-review" type="button" role="tab" data-section="review" data-static="1" aria-selected="true" aria-controls="panel-review" tabindex="0"><span>01</span> Robot &amp; cost</button>
+          <button id="tab-edit" type="button" role="tab" data-section="edit" data-static="1" aria-selected="false" aria-controls="panel-edit" tabindex="-1"><span>02</span> Edit design</button>
+          <button id="tab-finance" type="button" role="tab" data-section="finance" data-static="1" aria-selected="false" aria-controls="panel-finance" tabindex="-1"><span>03</span> Finance</button>
+          <button id="tab-files" type="button" role="tab" data-section="files" data-static="1" aria-selected="false" aria-controls="panel-files" tabindex="-1"><span>04</span> Files</button>
+        </div>
+        <button class="quiet requires-project" data-open-assembly type="button" disabled>Assembly guide →</button>
+      </div>
+      <section id="panel-review" class="workspace-panel" role="tabpanel" aria-labelledby="tab-review" tabindex="0">
+      <div class="section-intro"><h2>Review the robot</h2><p>Inspect the model on the left. Adjust the budget or select a part on the right.</p></div>
       <div class="ws-grid">
         <!-- 3D stage -->
         <article class="card stage-card" aria-label="3D view">
@@ -155,6 +167,8 @@
               <div><dt>Height</dt><dd id="fact-height">—</dd></div>
               <div><dt>Arm reach</dt><dd id="fact-reach">—</dd></div>
               <div><dt>Est. mass</dt><dd id="fact-mass">—</dd></div>
+              <div><dt>Body · mm</dt><dd id="fact-body">Not set</dd></div>
+              <div><dt>Body area</dt><dd id="fact-area">Not set</dd></div>
             </dl>
             <p id="selection" class="muted">Click any part in the 3D view or the list to see what it is.</p>
           </div>
@@ -240,10 +254,20 @@
         </div>
       </div>
 
+      </section>
+      <section id="panel-edit" class="workspace-panel" role="tabpanel" aria-labelledby="tab-edit" tabindex="0" hidden>
+      <div class="section-intro"><h2>Make changes to your build</h2><p>Describe a change, edit exact requirements, or add a custom part. Each applied change saves a new revision.</p><button class="quiet" data-workspace-section="review" data-static="1" type="button">Review the updated model →</button></div>
       <div class="ws-row">
         <article class="card" aria-labelledby="brief-title">
-          <div class="card-heading"><span class="eyebrow" id="brief-title">Your brief</span><span id="architect-state" class="badge">Argus</span></div>
+          <div class="card-heading"><span class="eyebrow" id="brief-title">Brief &amp; dimensions</span><span id="architect-state" class="badge">Argus</span></div>
           <div class="card-body">
+            <form id="design-edit-form" class="form">
+              <h3 class="form-section-title">1. Describe a change</h3>
+              <label for="design-edit-message">Change this robot</label>
+              <textarea id="design-edit-message" rows="2" maxlength="4000" placeholder="Make the body 600 by 400 mm, or replace the battery with the 40Ah model." required></textarea>
+              <button type="submit" class="button requires-project" disabled>Apply changes</button>
+              <p id="design-edit-result" class="muted" role="status" aria-live="polite">Changes update the saved design, parts list and CAD together.</p>
+            </form>
             <div id="architect-note" class="architect-note" hidden>
               <p id="architect-reply"></p>
               <form id="architect-form" class="inline-form">
@@ -252,16 +276,31 @@
                 <button type="submit" class="quiet requires-project" disabled>Answer</button>
               </form>
             </div>
+            <details class="manual-settings"><summary>2. Exact requirements &amp; dimensions</summary>
             <form id="requirements-form" class="form">
+              <fieldset class="form-group"><legend>Job &amp; operating requirements</legend>
               <label>What it should do<textarea id="req-description" rows="3" maxlength="4000"></textarea></label>
               <div class="fields">
                 <label>Carries up to · kg<input id="req-payload" type="number" min="0" max="50" step="0.1"></label>
                 <label>Moves by<select id="req-mobility"><option value="wheeled">Wheels</option><option value="fixed">Stays in place</option></select></label>
                 <label>Runtime · hours<input id="req-runtime" type="number" min="0.5" max="12" step="0.5"></label>
                 <label>Budget · USD<input id="req-budget" type="number" min="0" step="50"></label>
+                <label>Working area · m²<input id="req-area" type="number" min="0.1" max="1000000" step="0.1" placeholder="Not specified"></label>
               </div>
+              </fieldset>
+              <fieldset class="form-group"><legend>Robot dimensions</legend>
+              <div class="fields">
+                <label>Body length · mm<input id="req-length" type="number" min="180" max="1500" step="1" placeholder="Automatic"></label>
+                <label>Body width · mm<input id="req-width" type="number" min="140" max="1200" step="1" placeholder="Automatic"></label>
+                <label>Mast height · mm<input id="req-mast" type="number" min="0" max="1300" step="1" placeholder="Automatic"></label>
+                <label>Arm link length · mm<input id="req-link" type="number" min="60" max="400" step="1" placeholder="Automatic"></label>
+                <label>Wheel diameter · mm<select id="req-wheel"><option value="">Automatic</option><option value="65">65</option><option value="100">100</option><option value="150">150</option></select></label>
+              </div>
+              </fieldset>
+              <p class="muted">Dimensions are prototype layout parameters, not vendor-customized parts. Working area records the job's floor area, not the robot's size. Your chosen parts stay selected when you rebuild.</p>
               <button type="submit" class="button requires-project" disabled>Rebuild robot</button>
             </form>
+            </details>
           </div>
         </article>
 
@@ -293,11 +332,9 @@
 
       </div>
 
-      <article class="card downloads-card" aria-labelledby="downloads-title">
-        <div class="card-heading"><span class="eyebrow" id="downloads-title">Download</span><button id="csv" class="quiet requires-project" disabled>Parts list (CSV)</button></div>
-        <div class="card-body"><div id="downloads" class="downloads"><p class="muted">Build a custom part to download its CAD files.</p></div></div>
-      </article>
-
+      </section>
+      <section id="panel-finance" class="workspace-panel" role="tabpanel" aria-labelledby="tab-finance" tabindex="0" hidden>
+      <div class="section-intro"><h2>Research the financial case</h2><p>Set your assumptions, run the analysis, then review the evidence and limitations. This is research, not a trading recommendation.</p></div>
       <article class="card finance-research" aria-labelledby="research-title">
         <div class="card-heading"><h2 id="research-title">Investment research</h2><span class="badge">Public filings</span></div>
         <div class="card-body">
@@ -323,8 +360,16 @@
         </div>
       </article>
 
+      </section>
+      <section id="panel-files" class="workspace-panel" role="tabpanel" aria-labelledby="tab-files" tabindex="0" hidden>
+      <div class="section-intro"><h2>Export the current revision</h2><p>STEP is for CAD editing, STL is for printable custom parts, and GLB is for 3D viewing. Check each report before fabrication.</p></div>
+      <article class="card downloads-card" aria-labelledby="downloads-title">
+        <div class="card-heading"><span class="eyebrow" id="downloads-title">CAD files &amp; parts list</span><button id="csv" class="quiet requires-project" disabled>Parts list (CSV)</button></div>
+        <div class="card-body"><div id="downloads" class="downloads"><p class="muted">Build a custom part to download its CAD files.</p></div></div>
+      </article>
+      </section>
       <div class="next-row">
-        <p><b>Happy with the design?</b> <span class="muted">Next: print the parts, wire it up and put it together step by step.</span></p>
+        <p><b>Ready for the workbench?</b> <span class="muted">The assembly guide separates build steps, printable parts, wiring and tools.</span></p>
         <button id="to-assemble" class="button big requires-project" type="button" disabled>Next: how to assemble →</button>
         <button id="print-option" class="quiet requires-project" type="button" disabled>3D-print parts →</button>
       </div>
@@ -352,6 +397,14 @@
         </details>
         <button id="save-guide" class="quiet" type="button" data-static="1">Download assembly plan (JSON)</button>
       </div></article>
+      <div id="assembly-tabs" class="section-tabs assembly-tabs" role="tablist" aria-label="Assembly guide sections">
+        <button id="tab-steps" role="tab" type="button" data-section="steps" data-static="1" aria-selected="true" aria-controls="panel-steps" tabindex="0">Build steps</button>
+        <button id="tab-prints" role="tab" type="button" data-section="prints" data-static="1" aria-selected="false" aria-controls="panel-prints" tabindex="-1">3D printing</button>
+        <button id="tab-wiring" role="tab" type="button" data-section="wiring" data-static="1" aria-selected="false" aria-controls="panel-wiring" tabindex="-1">Wiring</button>
+        <button id="tab-checklist" role="tab" type="button" data-section="checklist" data-static="1" aria-selected="false" aria-controls="panel-checklist" tabindex="-1">Parts &amp; tools</button>
+      </div>
+      <section id="panel-steps" class="workspace-panel" role="tabpanel" aria-labelledby="tab-steps" tabindex="0">
+      <div class="section-intro"><h2>Follow the assembly sequence</h2><p>Select a step to see the relevant parts and instructions. Previous and Next move through the guide.</p></div>
       <div class="asm-grid">
         <article class="card stage-card" aria-label="Step-by-step 3D view">
           <div class="card-heading"><span class="eyebrow" id="asm-count">Step 1</span><span id="asm-picked" class="badge">Click a part to name it</span></div>
@@ -384,6 +437,9 @@
         </article>
       </div>
 
+      </section>
+      <section id="panel-prints" class="workspace-panel" role="tabpanel" aria-labelledby="tab-prints" tabindex="0" hidden>
+      <div class="section-intro"><h2>Prepare the printable parts</h2><p>Only items marked printable belong on the printer. Check dimensions and bed fit before slicing.</p></div>
       <article class="card" aria-labelledby="prints-title">
         <div class="card-heading"><span class="eyebrow" id="prints-title">3D-print these parts</span><span id="prints-count" class="badge">—</span></div>
         <div class="card-body">
@@ -392,6 +448,9 @@
         </div>
       </article>
 
+      </section>
+      <section id="panel-wiring" class="workspace-panel" role="tabpanel" aria-labelledby="tab-wiring" tabindex="0" hidden>
+      <div class="section-intro"><h2>Check the electrical connections</h2><p>Read each route, then verify the actual component pinouts, wire ratings and protection before applying power.</p></div>
       <article class="card" aria-labelledby="wiring-title">
         <div class="card-heading"><span class="eyebrow" id="wiring-title">Wiring · which wire goes where</span><span id="wiring-source" class="badge">—</span></div>
         <div class="card-body">
@@ -411,6 +470,9 @@
         </div>
       </article>
 
+      </section>
+      <section id="panel-checklist" class="workspace-panel" role="tabpanel" aria-labelledby="tab-checklist" tabindex="0" hidden>
+      <div class="section-intro"><h2>Gather parts, supplies and tools</h2><p>Purchased components, harness supplies and tools are listed separately from printable parts.</p></div>
       <div class="ws-row">
         <article class="card" aria-labelledby="buy-parts-title">
           <div class="card-heading"><span class="eyebrow" id="buy-parts-title">Buy or fabricate · not print-ready</span></div>
@@ -425,6 +487,7 @@
           <div class="card-body"><ul id="asm-tools" class="asm-list"></ul></div>
         </article>
       </div>
+      </section>
     </section>
 
     <!-- ============ ADVANCED ============ -->

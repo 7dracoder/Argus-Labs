@@ -16,6 +16,7 @@ from roboforge.archetypes import ARCHETYPES
 from roboforge.cad.spec import VENT_PITCH_MM, PartSpec
 from roboforge.concept import Concept, to_archetype
 from roboforge.models import Component, RobotProject
+from roboforge.dimensions import apply_dimensions
 
 COLORS = {"frame": "#5f6f63", "deck": "#c6d8b6", "wheel": "#2d3a32", "motor": "#8a8f88", "battery": "#4f6273",
           "compute": "#345d49", "camera": "#26302a", "arm": "#dfe7d6", "servo": "#3b4a40", "gripper": "#a94f27",
@@ -110,7 +111,7 @@ class _Layout:
     # ---------------------------------------------------------------- shared modules
     def wheel_geometry(self) -> tuple[Component | None, float, float]:
         wheel = self.first("wheel")
-        mm = int(wheel.specs.get("diameter_mm", 100)) if wheel else 120
+        mm = wheel.specs.get("diameter_mm", 100) if wheel else 120
         return wheel, mm / 2000, WHEEL_WIDTH.get(mm, 0.045)
 
     def arm(self, root_x: float, root_z: float, top: float, link_scale: float = 1.0) -> None:
@@ -120,7 +121,7 @@ class _Layout:
             return
         joints = [c for c in servos for _ in range(c.quantity)]
         link_part = self.cad.get("arm_link")
-        link_len = max(0.06, link_part["spec"]["length_mm"] / 1000) if link_part else 0.12 * link_scale
+        link_len = max(0.06, link_part["spec"]["length_mm"] / 1000) if link_part else (self.project.requirements.arm_link_length_mm / 1000 if self.project.requirements.arm_link_length_mm else 0.12 * link_scale)
         self.add("turntable", joints[0], "cylinder", [0.03, 0.035], [root_x, top + 0.0175, root_z],
                  label="Arm base joint")
         segments = max(1, min(dof - 1, 3))
@@ -162,8 +163,9 @@ class _Layout:
 
     def mast_sensors(self, x: float, top: float, height: float) -> None:
         frame = self.first("frame")
-        self.add("mast", None, "cylinder", [0.012, height], [x, top + height / 2, 0], label="Sensor mast",
-                 component_id=frame.id if frame else None)
+        if height > 0:
+            self.add("mast", None, "cylinder", [0.012, height], [x, top + height / 2, 0], label="Sensor mast",
+                     component_id=frame.id if frame else None)
         self.mast_top = (x, top + height)
         pan = self.first("pan_tilt")
         if pan:
@@ -250,7 +252,7 @@ class _Layout:
         frame = self.first("frame")
         length, width = arch.size_m
         plate = self.cad.get("chassis_plate")
-        if plate and arch.key != "tracked_explorer":
+        if plate and arch.key != "tracked_explorer" and not (self.project.requirements.body_length_mm or self.project.requirements.body_width_mm):
             length = max(0.18, plate["spec"]["length_mm"] / 1000)
             width = max(0.14, plate["spec"]["width_mm"] / 1000)
         body_h = arch.body_h_m
@@ -349,7 +351,7 @@ class _Layout:
                 self.add("compute", compute, "box", size, [-length / 2 + 0.11, top + size[1] / 2, width / 4])
             self.cover("battery", "Battery cover")
             self.cover("compute", "Computer cover")
-            self.mast_sensors(-length / 2 + 0.035, top, arch.mast_m or 0.35)
+            self.mast_sensors(-length / 2 + 0.035, top, arch.mast_m)
             dof = self.qty("arm_servo")
             self.lidar([length / 2 - 0.06, top, -width / 2 + 0.06 if dof else 0])
             self.arm(length / 2 - 0.09, 0, top)
@@ -417,9 +419,10 @@ class _Layout:
             self.mic_at([radius * 0.15, top, radius * 0.45])
         elif arch.key == "security_patrol":
             self.lidar([radius * 0.6, top, 0])
-            tower_h, tx = arch.mast_m or 0.7, -radius * 0.1
-            self.add("tower", None, "cylinder", [0.045, tower_h], [tx, top + tower_h / 2, 0], label="Sensor tower",
-                     component_id=frame.id if frame else None)
+            tower_h, tx = arch.mast_m, -radius * 0.1
+            if tower_h > 0:
+                self.add("tower", None, "cylinder", [0.045, tower_h], [tx, top + tower_h / 2, 0], label="Sensor tower",
+                         component_id=frame.id if frame else None)
             speaker = self.first("speaker")
             if speaker:
                 self.add("speaker", speaker, "box", [0.03, 0.06, 0.07], [tx + 0.058, top + tower_h * 0.45, 0])
@@ -435,9 +438,10 @@ class _Layout:
             self.mic_at([tx - 0.03, top, radius * 0.4])
         else:  # telepresence
             self.lidar([radius * 0.55, top, 0])
-            mast_h = arch.mast_m or 0.95
-            self.add("mast", None, "cylinder", [0.022, mast_h], [-radius * 0.1, top + mast_h / 2, 0], label="Neck",
-                     component_id=frame.id if frame else None)
+            mast_h = arch.mast_m
+            if mast_h > 0:
+                self.add("mast", None, "cylinder", [0.022, mast_h], [-radius * 0.1, top + mast_h / 2, 0], label="Neck",
+                         component_id=frame.id if frame else None)
             head_y = top + mast_h
             display = self.first("display")
             dw, dh = (0.25, 0.16) if display and display.specs.get("diagonal_in", 7) > 8 else (0.17, 0.11)
@@ -478,6 +482,7 @@ def build_assembly(project: RobotProject) -> Assembly:
     concept = None if project.requirements.robot_type else (project.architecture or {}).get("concept")
     arch = to_archetype(Concept.model_validate(concept)) if concept and concept.get("chassis") == key else \
         ARCHETYPES.get(key, ARCHETYPES["mobile_robot"])
+    arch = apply_dimensions(arch, project.requirements)
     {"rect": layout.rect, "low": layout.low, "round": layout.round, "plate": layout.plate}[arch.base](arch)
     layout.extras()
 
@@ -501,6 +506,9 @@ def build_assembly(project: RobotProject) -> Assembly:
         summary={"wheels": "Tracks" if arch.track else wheel_nodes, "arm_joints": layout.qty("arm_servo"),
                  "footprint_m": [round(v, 3) for v in layout.footprint], "height_m": round(height, 3),
                  "arm_reach_m": round(layout.reach, 3), "generated_parts_used": sorted(layout.cad),
+                 "body_size_mm": [round(v * 1000, 3) for v in arch.size_m],
+                 "body_area_m2": round(arch.size_m[0] * arch.size_m[1] * (math.pi / 4 if arch.base == "round" else 1), 4),
+                 "operating_area_m2": project.requirements.operating_area_m2,
                  "body_plan": arch.label},
         unplaced=[wiring.name] if wiring else [],
         notes=["Layout from the parts list; not an interference- or fit-checked assembly.",

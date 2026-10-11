@@ -111,6 +111,31 @@ parts are representative models, not vendor CAD.
 
 ## Local robotics design studio
 
+### Applying changes
+
+Use **Change this robot** and **Apply changes** to edit the current revision in
+plain language. Examples: `Make the body 600 by 400 mm and mast height 70 cm`,
+`Replace the battery with the 40Ah model`, `Remove the camera`, or
+`Make the robot 25% wider and working area 120 m2`. Changes update the saved
+requirements, BOM, assembly, printable-part guide and revision-pinned CAD URLs.
+Dimensions also have editable fields for precise control without an AI service.
+
+`POST /projects/{id}/design/edit` accepts `message`, an optional selected
+`component_id`, and `expected_revision`. Common sizes, unit conversions and
+catalog operations are parsed deterministically. Other phrasing uses a bounded
+structured plan. Invalid plans, unsupported catalog parts, missing dimensions,
+and concurrent revision conflicts leave the saved design unchanged.
+
+Manual part replacements and removals persist across later budget rebuilds.
+New sizing warnings are shown if a selected part no longer meets the brief.
+Existing custom CAD parts are resized in place, preserving their BOM identity;
+old geometry remains available from its original revision. A working area is
+a requirement about the room, not a fabricated map or a robot-body dimension.
+Resized stock-frame geometry is a prototype layout, not vendor CAD or a quote
+for a custom frame. Fit, strength, wiring and manufacturing still need review.
+
+Regression checks: `.venv/bin/python -m pytest tests/test_edits.py -q`.
+
 Run the backend, then open `http://127.0.0.1:8765`:
 
 ```powershell
@@ -231,7 +256,7 @@ On first use the backend creates a private agent (Gemini via ElevenLabs, your
 signed WebSocket URL from `POST /voice/live/session`. The agent changes the design
 through browser client tools that call the normal API: `get_robot_status`,
 `start_new_robot`, `set_budget`, `update_brief`, `make_it_cheaper`,
-`highlight_part`, `build_custom_part` (asks for confirmation first). The SDK and
+`highlight_part`, `edit_part`, `edit_robot`, `build_custom_part` (asks for confirmation first). The SDK and
 its audio worklets are vendored in `roboforge/web/vendor/` so the CSP stays strict.
 
 ### ElevenLabs: Forge robot-design voice copilot
